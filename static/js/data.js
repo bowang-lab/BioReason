@@ -4,6 +4,19 @@ const paper = {
     description: "This is a description",
     keywords: ["This", "Is", "A", "Keyword"],
   },
+  navbar: {
+    home_link: "https://example.com",
+    more_research: [
+      {
+        name: "Research 1",
+        link: "https://example.com/research-1",
+      },
+      {
+        name: "Research 2",
+        link: "https://example.com/research-2",
+      },
+    ],
+  },
   authors: [
     {
       name: "John Doe",
@@ -28,13 +41,33 @@ const paper = {
       },
     },
   ],
-  links: {
-    paper: "https://example.com/paper.pdf",
-    arxiv: "https://arxiv.org/abs/xxx",
-    video: "https://youtube.com/xxx",
-    code: "https://github.com/xxx",
-    dataset: "https://example.com/dataset",
-  },
+  link_items: [
+    {
+      name: "Paper",
+      link: "https://example.com/paper.pdf",
+      icon: "fas fa-file-pdf",
+    },
+    {
+      name: "Arxiv",
+      link: "https://arxiv.org/abs/xxx",
+      icon: "ai ai-arxiv",
+    },
+    {
+      name: "Video",
+      link: "https://youtube.com/xxx",
+      icon: "fab fa-youtube",
+    },
+    {
+      name: "Code",
+      link: "https://github.com/xxx",
+      icon: "fab fa-github",
+    },
+    {
+      name: "Dataset",
+      link: "https://example.com/dataset",
+      icon: "fa-solid fa-database",
+    },
+  ],
   content: {
     abstract:
       "This is the abstract of the paper. It provides a brief overview of the research and its significance.",
@@ -59,4 +92,10 @@ const paper = {
     },
     conclusion: "In conclusion, our work demonstrates...",
   },
+  bibtex: `@article{xxx,
+    author    = {xxx},
+    title     = {xxx},
+    journal   = {xxx},
+    year      = {xxx},
+  }`,
 };

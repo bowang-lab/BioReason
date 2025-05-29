@@ -1,11 +1,4 @@
 $(document).ready(function () {
-  // Check for click events on the navbar burger icon
-  $(".navbar-burger").click(function () {
-    // Toggle the "is-active" class on both the "navbar-burger" and the "navbar-menu"
-    $(".navbar-burger").toggleClass("is-active");
-    $(".navbar-menu").toggleClass("is-active");
-  });
-
   // Get the template source
   const source = $("#paper-template").html();
 
@@ -17,4 +10,11 @@ $(document).ready(function () {
 
   // Insert the rendered HTML into the page
   $("#content").html(html);
+
+  // Initialize navbar burger functionality after rendering
+  $(".navbar-burger").click(function () {
+    // Toggle the "is-active" class on both the "navbar-burger" and the "navbar-menu"
+    $(".navbar-burger").toggleClass("is-active");
+    $(".navbar-menu").toggleClass("is-active");
+  });
 });

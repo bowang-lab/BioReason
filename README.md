@@ -2,6 +2,10 @@
 
 This is the repository that contains source code for the [Papers](https://tonyhx2021.github.io/papers).
 
+# About
+
+This website is built using Handlebars templating engine. You can quickly generate an academic paper website by modifying the data in `data.js`.
+
 Special thanks to [Nerfies website](https://nerfies.github.io) for design inspiration.
 
 # Website License

@@ -34,108 +34,100 @@
     <script src="./static/js/index.js"></script>
   </head>
   <body>
-    <!-- <nav class="navbar" role="navigation" aria-label="main navigation">
-  <div class="navbar-brand">
-    <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
-      <span aria-hidden="true"></span>
-      <span aria-hidden="true"></span>
-      <span aria-hidden="true"></span>
-    </a>
-  </div>
-  <div class="navbar-menu">
-    <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
-      <a class="navbar-item" href="{{paper.github_link}}">
-      <span class="icon">
-          <i class="fas fa-home"></i>
-      </span>
-      </a>
-
-      <div class="navbar-item has-dropdown is-hoverable">
-        <a class="navbar-link">
-          More Research
-        </a>
-        <div class="navbar-dropdown">
-          <a class="navbar-item" href="https://papers.github.io">
-            Papers
-          </a>
-        </div>
-      </div>
-    </div>
-
-  </div>
-</nav> -->
+    <div id="content"></div>
 
     <script id="paper-template" type="text/x-handlebars-template">
+      {{#if paper.navbar}}
+        <nav class="navbar" role="navigation" aria-label="main navigation">
+          <div class="navbar-brand">
+            <a
+              role="button"
+              target="_blank"
+              class="navbar-burger"
+              aria-label="menu"
+              aria-expanded="false"
+            >
+              <span aria-hidden="true"></span>
+              <span aria-hidden="true"></span>
+              <span aria-hidden="true"></span>
+            </a>
+          </div>
+          <div class="navbar-menu">
+            <div
+              class="navbar-start"
+              style="flex-grow: 1; justify-content: center;"
+            >
+              <a
+                class="navbar-item"
+                target="_blank"
+                href="{{paper.navbar.home_link}}"
+              >
+                <span class="icon">
+                  <i class="fas fa-home"></i>
+                </span>
+              </a>
+
+              <div class="navbar-item has-dropdown is-hoverable">
+                <a class="navbar-link">More Research</a>
+                <div class="navbar-dropdown">
+                  {{#each paper.navbar.more_research}}
+                    <a class="navbar-item" target="_blank" href="{{link}}">
+                      {{name}}
+                    </a>
+                  {{/each}}
+                </div>
+              </div>
+            </div>
+          </div>
+        </nav>
+      {{/if}}
+
       <section class="hero">
         <div class="hero-body">
           <div class="container is-max-desktop">
             <div class="columns is-centered">
               <div class="column has-text-centered">
-                <h1 class="title is-1 publication-title">{{paper.metadata.title}}</h1>
+                <h1
+                  class="title is-1 publication-title"
+                >{{paper.metadata.title}}</h1>
                 <div class="is-size-5 publication-authors">
                   {{#each paper.authors}}
-                  <span class="author-block">
-                    <a href="{{links.website}}">{{name}}</a><sup>{{affiliation.number}}</sup>{{#unless @last}},{{/unless}}
-                  </span>
+                    <span class="author-block">
+                      <a
+                        href="{{links.website}}"
+                        target="_blank"
+                      >{{name}}</a><sup>{{affiliation.number}}</sup>{{#unless
+                        @last
+                      }},{{/unless}}
+                    </span>
                   {{/each}}
                 </div>
 
                 <div class="is-size-5 publication-authors">
                   {{#each paper.authors}}
-                  <span class="author-block"><sup>{{affiliation.number}}</sup>{{affiliation.name}}{{#unless @last}},{{/unless}}</span>
+                    <span class="author-block"><sup
+                      >{{affiliation.number}}</sup>{{affiliation.name}}{{#unless
+                        @last
+                      }},{{/unless}}</span>
                   {{/each}}
                 </div>
 
                 <div class="column has-text-centered">
                   <div class="publication-links">
-                    <!-- PDF Link. -->
-                    <span class="link-block">
-                      <a href="{{paper.links.paper}}"
-                         class="external-link button is-normal is-rounded is-dark">
-                        <span class="icon">
-                            <i class="fas fa-file-pdf"></i>
-                        </span>
-                        <span>Paper</span>
-                      </a>
-                    </span>
-                    <span class="link-block">
-                      <a href="{{paper.links.arxiv}}"
-                         class="external-link button is-normal is-rounded is-dark">
-                        <span class="icon">
-                            <i class="ai ai-arxiv"></i>
-                        </span>
-                        <span>arXiv</span>
-                      </a>
-                    </span>
-                    <!-- Video Link. -->
-                    <span class="link-block">
-                      <a href="{{paper.links.video}}"
-                         class="external-link button is-normal is-rounded is-dark">
-                        <span class="icon">
-                            <i class="fab fa-youtube"></i>
-                        </span>
-                        <span>Video</span>
-                      </a>
-                    </span>
-                    <!-- Code Link. -->
-                    <span class="link-block">
-                      <a href="{{paper.links.code}}"
-                         class="external-link button is-normal is-rounded is-dark">
-                        <span class="icon">
-                            <i class="fab fa-github"></i>
-                        </span>
-                        <span>Code</span>
+                    {{#each paper.link_items}}
+                      <span class="link-block">
+                        <a
+                          href="{{link}}"
+                          target="_blank"
+                          class="external-link button is-normal is-rounded is-dark"
+                        >
+                          <span class="icon">
+                            <i class="{{icon}}"></i>
+                          </span>
+                          <span>{{name}}</span>
                         </a>
-                    </span>
-                    <!-- Dataset Link. -->
-                    <span class="link-block">
-                      <a href="{{paper.links.dataset}}"
-                         class="external-link button is-normal is-rounded is-dark">
-                        <span class="icon">
-                          <i class="fa-solid fa-database"></i>
-                        </span>
-                        <span>Data</span>
-                        </a>
+                      </span>
+                    {{/each}}
                   </div>
                 </div>
               </div>
@@ -160,128 +152,154 @@
           <!--/ Abstract. -->
 
           <!-- Key contributions. -->
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <h2 class="title is-3">Key Contributions</h2>
-              <div class="content has-text-justified">
-                <ul>
-                  {{#each paper.content.contributions}}
-                  <li>{{this}}</li>
-                  {{/each}}
-                </ul>
+          {{#if paper.content.contributions}}
+            <div class="columns is-centered has-text-centered">
+              <div class="column is-four-fifths">
+                <h2 class="title is-3">Key Contributions</h2>
+                <div class="content has-text-justified">
+                  <ul>
+                    {{#each paper.content.contributions}}
+                      <li>{{this}}</li>
+                    {{/each}}
+                  </ul>
+                </div>
               </div>
             </div>
-          </div>
+          {{/if}}
           <!--/ Key contributions. -->
         </div>
       </section>
 
       <!-- Architecture. -->
-      <section class="section">
-        <div class="container is-max-desktop">
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <h2 class="title is-3">Architecture</h2>
-              <div class="publication-image">
-                <img src="{{paper.content.sections.architecture.image}}" alt="Architecture">
+      {{#if paper.content.sections.architecture}}
+        <section class="section">
+          <div class="container is-max-desktop">
+            <div class="columns is-centered has-text-centered">
+              <div class="column is-four-fifths">
+                <h2 class="title is-3">Architecture</h2>
+                {{#if paper.content.sections.architecture.image}}
+                  <div class="publication-image">
+                    <img
+                      src="{{paper.content.sections.architecture.image}}"
+                      alt="Architecture"
+                    />
+                  </div>
+                {{/if}}
               </div>
             </div>
-          </div>
 
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <div class="content has-text-justified">
-                <p>
-                  {{paper.content.sections.architecture.text}}
-                </p>
+            {{#if paper.content.sections.architecture.text}}
+              <div class="columns is-centered has-text-centered">
+                <div class="column is-four-fifths">
+                  <div class="content has-text-justified">
+                    <p>
+                      {{paper.content.sections.architecture.text}}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
+            {{/if}}
           </div>
-        </div>
-      </section>
+        </section>
+      {{/if}}
       <!--/ Architecture. -->
 
       <!-- Experiments. -->
-      <section class="section">
-        <div class="container is-max-desktop">
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <h2 class="title is-3">Experiments</h2>
-              <div class="publication-image">
-                <img src="{{paper.content.sections.experiments.image}}" alt="Experiments">
+      {{#if paper.content.sections.experiments}}
+        <section class="section">
+          <div class="container is-max-desktop">
+            <div class="columns is-centered has-text-centered">
+              <div class="column is-four-fifths">
+                <h2 class="title is-3">Experiments</h2>
+                {{#if paper.content.sections.experiments.image}}
+                  <div class="publication-image">
+                    <img
+                      src="{{paper.content.sections.experiments.image}}"
+                      alt="Experiments"
+                    />
+                  </div>
+                {{/if}}
               </div>
             </div>
-          </div>
 
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <div class="content has-text-justified">
-                <p>
-                  {{paper.content.sections.experiments.text}}
-                </p>
+            {{#if paper.content.sections.experiments.text}}
+              <div class="columns is-centered has-text-centered">
+                <div class="column is-four-fifths">
+                  <div class="content has-text-justified">
+                    <p>
+                      {{paper.content.sections.experiments.text}}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
+            {{/if}}
           </div>
-        </div>
-      </section>
+        </section>
+      {{/if}}
       <!--/ Experiments. -->
 
       <!-- Case Study. -->
-      <section class="section">
-        <div class="container is-max-desktop">
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <h2 class="title is-3">Case Study</h2>
-              <div class="publication-image">
-                <img src="{{paper.content.sections.case_study.image}}" alt="Case Study">
+      {{#if paper.content.sections.case_study}}
+        <section class="section">
+          <div class="container is-max-desktop">
+            <div class="columns is-centered has-text-centered">
+              <div class="column is-four-fifths">
+                <h2 class="title is-3">Case Study</h2>
+                {{#if paper.content.sections.case_study.image}}
+                  <div class="publication-image">
+                    <img
+                      src="{{paper.content.sections.case_study.image}}"
+                      alt="Case Study"
+                    />
+                  </div>
+                {{/if}}
               </div>
             </div>
-          </div>
 
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <div class="content has-text-justified">
-                <p>
-                  {{paper.content.sections.case_study.text}}
-                </p>
+            {{#if paper.content.sections.case_study.text}}
+              <div class="columns is-centered has-text-centered">
+                <div class="column is-four-fifths">
+                  <div class="content has-text-justified">
+                    <p>
+                      {{paper.content.sections.case_study.text}}
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
+            {{/if}}
           </div>
-        </div>
-      </section>
+        </section>
+      {{/if}}
       <!--/ Case Study. -->
 
       <!-- Conclusion. -->
-      <section class="section">
-        <div class="container is-max-desktop">
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <h2 class="title is-3">Conclusion</h2>
+      {{#if paper.content.conclusion}}
+        <section class="section">
+          <div class="container is-max-desktop">
+            <div class="columns is-centered has-text-centered">
+              <div class="column is-four-fifths">
+                <h2 class="title is-3">Conclusion</h2>
+              </div>
             </div>
-          </div>
-          <div class="columns is-centered has-text-centered">
-            <div class="column is-four-fifths">
-              <div class="content has-text-justified">
-                <p>
-                  {{paper.content.conclusion}}
-                </p>
+            <div class="columns is-centered has-text-centered">
+              <div class="column is-four-fifths">
+                <div class="content has-text-justified">
+                  <p>
+                    {{paper.content.conclusion}}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+      {{/if}}
       <!--/ Conclusion. -->
 
       <!-- BibTeX. -->
       <section class="section" id="BibTeX">
         <div class="container is-max-desktop content">
           <h2 class="title">BibTeX</h2>
-          <pre><code>@article{xxx,
-        author    = {xxx},
-        title     = {xxx},
-        journal   = {xxx},
-        year      = {xxx},
-      }</code></pre>
+          <pre><code>{{paper.bibtex}}</code></pre>
         </div>
       </section>
       <!--/ BibTeX. -->
@@ -290,21 +308,41 @@
       <footer class="footer">
         <div class="container">
           <div class="content has-text-centered">
-            <a class="icon-link"
-               href="{{paper.links.paper}}">
-              <i class="fas fa-file-pdf"></i>
-            </a>
-            <a class="icon-link" href="{{paper.links.code}}" class="external-link" disabled>
-              <i class="fab fa-github"></i>
-            </a>
+            {{#each paper.link_items}}
+              <a
+                class="icon-link"
+                href="{{link}}"
+                target="_blank"
+                style="margin: 0 10px;"
+              >
+                <i class="{{icon}} is-small"></i>
+              </a>
+            {{/each}}
           </div>
           <div class="columns is-centered">
             <div class="column is-8">
               <div class="content">
                 <p>
-                  This website is licensed under a <a rel="license"
-                                                      href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
-                  Commons Attribution-ShareAlike 4.0 International License</a>.
+                  This page was built using the
+                  <a
+                    href="https://github.com/tonyh2021/papers"
+                    target="_blank"
+                  >Papers</a>
+                  which was inspired by the
+                  <a
+                    href="https://nerfies.github.io/"
+                    target="_blank"
+                  >Nerfies</a>. You are free to borrow the of this website, we
+                  just ask that you link back to this page in the footer.
+                </p>
+                <p>
+                  This website is licensed under a
+                  <a
+                    rel="license"
+                    href="http://creativecommons.org/licenses/by-sa/4.0/"
+                    target="_blank"
+                  >Creative Commons Attribution-ShareAlike 4.0 International
+                    License</a>.
                 </p>
               </div>
             </div>
@@ -312,7 +350,5 @@
         </div>
       </footer>
     </script>
-
-    <div id="content"></div>
   </body>
 </html>
