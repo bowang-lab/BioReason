@@ -1,6 +1,6 @@
 # Papers
 
-This is the repository that contains source code for the [Papers](https://xxx.github.io).
+This is the repository that contains source code for the [Papers](https://tonyhx2021.github.io/papers).
 
 Special thanks to [Nerfies website](https://nerfies.github.io) for design inspiration.
 
