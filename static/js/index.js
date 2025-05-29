@@ -5,4 +5,16 @@ $(document).ready(function () {
     $(".navbar-burger").toggleClass("is-active");
     $(".navbar-menu").toggleClass("is-active");
   });
+
+  // Get the template source
+  const source = $("#paper-template").html();
+
+  // Compile the template
+  const template = Handlebars.compile(source);
+
+  // Render the template with the paper data
+  const html = template({ paper: paper });
+
+  // Insert the rendered HTML into the page
+  $("#content").html(html);
 });
