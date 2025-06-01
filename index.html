@@ -2,10 +2,10 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta name="description" content="{{paper.meta_description}}" />
-    <meta name="keywords" content="{{paper.meta_keywords}}" />
+    <meta name="description" content="{{paper.metadata.description}}" />
+    <meta name="keywords" content="{{paper.metadata.keywords}}" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{paper.title}}</title>
+    <title>{{paper.metadata.title}}</title>
 
     <link
       href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro"
@@ -37,92 +37,66 @@
     <div id="content"></div>
 
     <script id="paper-template" type="text/x-handlebars-template">
-      {{#if paper.navbar}}
-        <nav class="navbar" role="navigation" aria-label="main navigation">
-          <div class="navbar-brand">
-            <a
-              role="button"
-              target="_blank"
-              class="navbar-burger"
-              aria-label="menu"
-              aria-expanded="false"
-            >
-              <span aria-hidden="true"></span>
-              <span aria-hidden="true"></span>
-              <span aria-hidden="true"></span>
-            </a>
-          </div>
-          <div class="navbar-menu">
-            <div
-              class="navbar-start"
-              style="flex-grow: 1; justify-content: center;"
-            >
-              <a
-                class="navbar-item"
-                target="_blank"
-                href="{{paper.navbar.home_link}}"
-              >
-                <span class="icon">
-                  <i class="fas fa-home"></i>
-                </span>
-              </a>
-
-              <div class="navbar-item has-dropdown is-hoverable">
-                <a class="navbar-link">More Research</a>
-                <div class="navbar-dropdown">
-                  {{#each paper.navbar.more_research}}
-                    <a class="navbar-item" target="_blank" href="{{link}}">
-                      {{name}}
-                    </a>
-                  {{/each}}
-                </div>
-              </div>
-            </div>
-          </div>
-        </nav>
-      {{/if}}
-
       <section class="hero">
         <div class="hero-body">
           <div class="container is-max-desktop">
             <div class="columns is-centered">
               <div class="column has-text-centered">
-                <h1
-                  class="title is-1 publication-title"
-                >{{paper.metadata.title}}</h1>
+                <div class="has-text-centered" style="width: 100%; text-align: center !important; margin-bottom: 1rem; display: flex; align-items: center; justify-content: center;">
+                  <span style="font-size: 3rem; margin-right: 10px; line-height: 1;">🧬</span>
+                  <h1 class="title is-1 publication-title" style="margin: 0; line-height: 1.2;">BioReason</h1>
+                </div>
+                <h1 class="title is-2 publication-title">Incentivizing Multimodal Biological<br>Reasoning within a DNA-LLM Model</h1>
+                
                 <div class="is-size-5 publication-authors">
+                  <!-- Paper authors -->
                   {{#each paper.authors}}
                     <span class="author-block">
-                      <a
-                        href="{{links.website}}"
-                        target="_blank"
-                      >{{name}}</a><sup>{{affiliation.number}}</sup>{{#unless
-                        @last
-                      }},{{/unless}}
+                      <a href="{{website}}" target="_blank">{{name}}<sup>{{superscript}}</sup>{{#unless @last}},&nbsp;{{/unless}}</a>
                     </span>
                   {{/each}}
                 </div>
 
-                <div class="is-size-5 publication-authors">
-                  {{#each paper.authors}}
-                    <span class="author-block"><sup
-                      >{{affiliation.number}}</sup>{{affiliation.name}}{{#unless
-                        @last
-                      }},{{/unless}}</span>
+                <div class="is-size-5 publication-authors" style="margin-top:15px;">
+                  {{#each paper.affiliations}}
+                    <span class="author-block" style="display: inline-block; margin: 5px 15px; vertical-align: top;">
+                      <sup>{{number}}</sup>
+                      {{name}}
+                      {{#if logo}}
+                        {{#if (eq number "7")}}
+                          <img src="{{logo}}" alt="{{name}}"
+                            style="width:85px;height:40px;margin-left:8px;vertical-align:middle;object-fit:contain;">
+                        {{else if (eq number "3")}}
+                          <img src="{{logo}}" alt="{{name}}"
+                            style="width:50px;height:40px;margin-left:8px;vertical-align:middle;object-fit:contain;">
+                        {{else if (eq number "4")}}
+                          <img src="{{logo}}" alt="{{name}}"
+                            style="width:32px;height:32px;margin-left:8px;vertical-align:middle;object-fit:contain;">
+                        {{else}}
+                          <img src="{{logo}}" alt="{{name}}"
+                            style="width:40px;height:40px;margin-left:8px;vertical-align:middle;object-fit:contain;">
+                        {{/if}}
+                      {{/if}}
+                    </span>
                   {{/each}}
                 </div>
 
-                <div class="column has-text-centered">
+                <div class="author-notes" style="margin-top:15px;">
+                  <p><sup>*</sup> {{paper.author_notes.equal_contribution}}.&nbsp;&nbsp;&nbsp;<sup>†</sup> {{paper.author_notes.equal_advising}}.</p>
+                </div>
+
+                <div class="column has-text-centered" style="margin-top: 5px;">
                   <div class="publication-links">
                     {{#each paper.link_items}}
                       <span class="link-block">
-                        <a
-                          href="{{link}}"
-                          target="_blank"
-                          class="external-link button is-normal is-rounded is-dark"
-                        >
+                        <a href="{{link}}" target="_blank"
+                          class="external-link button is-normal is-rounded is-dark">
                           <span class="icon">
-                            <i class="{{icon}}"></i>
+                            {{#if (eq icon "🤗")}}
+                              <p>{{icon}}</p>
+                            {{else}}
+                              <i class="{{icon}}"></i>
+                            {{/if}}
                           </span>
                           <span>{{name}}</span>
                         </a>
@@ -136,7 +110,7 @@
         </div>
       </section>
 
-      <section class="section">
+      <section class="section" style="padding-top: 2.5rem;">
         <div class="container is-max-desktop">
           <!-- Abstract. -->
           <div class="columns is-centered has-text-centered">
@@ -153,13 +127,13 @@
 
           <!-- Key contributions. -->
           {{#if paper.content.contributions}}
-            <div class="columns is-centered has-text-centered">
+            <div class="columns is-centered has-text-centered" style="margin-top: 3rem;">
               <div class="column is-four-fifths">
                 <h2 class="title is-3">Key Contributions</h2>
                 <div class="content has-text-justified">
                   <ul>
                     {{#each paper.content.contributions}}
-                      <li>{{this}}</li>
+                      <li>{{{this}}}</li>
                     {{/each}}
                   </ul>
                 </div>
@@ -204,18 +178,52 @@
       {{/if}}
       <!--/ Architecture. -->
 
+      <!-- Dataset. -->
+      {{#if paper.content.sections.dataset}}
+        <section class="section">
+          <div class="container is-max-desktop">
+            <div class="columns is-centered has-text-centered">
+              <div class="column is-four-fifths">
+                <h2 class="title is-3">Dataset</h2>
+                {{#if paper.content.sections.dataset.image}}
+                  <div class="publication-image">
+                    <img
+                      src="{{paper.content.sections.dataset.image}}"
+                      alt="Dataset"
+                    />
+                  </div>
+                {{/if}}
+              </div>
+            </div>
+
+            {{#if paper.content.sections.dataset.text}}
+              <div class="columns is-centered has-text-centered">
+                <div class="column is-four-fifths">
+                  <div class="content has-text-justified">
+                    <p>
+                      {{paper.content.sections.dataset.text}}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            {{/if}}
+          </div>
+        </section>
+      {{/if}}
+      <!--/ Dataset. -->
+
       <!-- Experiments. -->
       {{#if paper.content.sections.experiments}}
         <section class="section">
           <div class="container is-max-desktop">
             <div class="columns is-centered has-text-centered">
               <div class="column is-four-fifths">
-                <h2 class="title is-3">Experiments</h2>
+                <h2 class="title is-3">Results</h2>
                 {{#if paper.content.sections.experiments.image}}
                   <div class="publication-image">
                     <img
                       src="{{paper.content.sections.experiments.image}}"
-                      alt="Experiments"
+                      alt="Results"
                     />
                   </div>
                 {{/if}}
@@ -315,7 +323,11 @@
                 target="_blank"
                 style="margin: 0 10px;"
               >
-                <i class="{{icon}} is-small"></i>
+                {{#if (eq icon "🤗")}}
+                  {{icon}}
+                {{else}}
+                  <i class="{{icon}} is-small"></i>
+                {{/if}}
               </a>
             {{/each}}
           </div>

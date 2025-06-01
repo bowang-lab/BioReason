@@ -1,4 +1,9 @@
 $(document).ready(function () {
+  // Register Handlebars helper for equality comparison
+  Handlebars.registerHelper('eq', function (a, b) {
+    return a === b;
+  });
+
   // Get the template source
   const source = $("#paper-template").html();
 
@@ -10,6 +15,9 @@ $(document).ready(function () {
 
   // Insert the rendered HTML into the page
   $("#content").html(html);
+
+  // Set the document title
+  document.title = paper.metadata.title;
 
   // Initialize navbar burger functionality after rendering
   $(".navbar-burger").click(function () {
