@@ -16,10 +16,7 @@ $(document).ready(function () {
   // Insert the rendered HTML into the page
   $("#content").html(html);
 
-  // Set the document title
-  document.title = paper.metadata.title;
-
-  // Initialize navbar burger functionality after rendering
+  // Initialize navbar burger functionality after rendering (kept for compatibility)
   $(".navbar-burger").click(function () {
     // Toggle the "is-active" class on both the "navbar-burger" and the "navbar-menu"
     $(".navbar-burger").toggleClass("is-active");
