@@ -35,9 +35,7 @@ from trl import GRPOConfig, GRPOTrainer, ModelConfig, ScriptArguments, TrlParser
 from bioreason.models.dna_llm import DNALLMModel
 from bioreason.dna_modules import NucleotideDNAModule
 from bioreason.models.dl.processing_dl import DLProcessor
-from bioreason.dataset.pretokenized import VariantEffectDataset
 from bioreason.trainer import DNALLMGRPOTrainer, DNALLMGRPOConfig
-from bioreason.dataset import KEGGDataset, split_kegg_dataset
 from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
 register_evo2_tokenizer()
 
