@@ -37,7 +37,7 @@ nvidia-smi    # Check GPU status
 # Run with DeepSpeed ZeRO Stage 2
 srun deepspeed --num_gpus=4 --num_nodes=1 \
     reason.py \
-    --deepspeed ds_config_stage2.json \
+    --deepspeed grpo_trainer_lora_model/ds_config_stage2.json \
     --num_generations 4 \
     --per_device_train_batch_size 2 \
     --bf16 true \
