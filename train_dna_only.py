@@ -12,7 +12,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.strategies import DeepSpeedStrategy
 from bioreason.models.dna_only import DNAClassifierModel
-from bioreason.dataset.base import VariantEffectDataset
 from bioreason.dataset.utils import truncate_dna
 from bioreason.dataset.kegg import dna_collate_fn
 from bioreason.dataset.variant_effect import clean_variant_effect_example
@@ -272,13 +271,7 @@ class DNAClassifierModelTrainer(pl.LightningModule):
     
     def load_dataset(self):
         """Load the dataset based on the dataset type."""
-        if self.hparams.dataset_type == "variant_effect":
-            dataset = load_dataset("wanglab/variant_effect_llm_tuning")
-            dataset = VariantEffectDataset(dataset)
-            labels = sorted(list(set(item["label"] for item in dataset)))
-            
-
-        elif self.hparams.dataset_type == "kegg":
+        if self.hparams.dataset_type == "kegg":
             dataset = load_dataset(self.hparams.kegg_data_dir_huggingface)
             
             if self.hparams.truncate_dna_per_side:
@@ -328,11 +321,7 @@ class DNAClassifierModelTrainer(pl.LightningModule):
 
     def train_dataloader(self):
         """Create and return the training DataLoader."""
-        if self.hparams.dataset_type == "variant_effect":
-            train_dataset = VariantEffectDataset(self.dataset["train"])
-            collate_fn = lambda b: VariantEffectDataset.collate_fn_dna_classifier(b, self.dna_tokenizer)
-
-        elif self.hparams.dataset_type == "kegg":
+        if self.hparams.dataset_type == "kegg":
             train_dataset = self.dataset["train"]
             collate_fn = lambda b: dna_collate_fn(b, dna_tokenizer=self.dna_tokenizer, label2id=self.label2id, max_length=self.hparams.max_length_dna)
         
@@ -358,11 +347,7 @@ class DNAClassifierModelTrainer(pl.LightningModule):
 
     def val_dataloader(self):
         """Create and return the training DataLoader."""
-        if self.hparams.dataset_type == "variant_effect":
-            val_dataset = VariantEffectDataset(self.dataset["test"])
-            collate_fn = lambda b: VariantEffectDataset.collate_fn_dna_classifier(b, self.dna_tokenizer)
-
-        elif self.hparams.dataset_type == "kegg":
+        if self.hparams.dataset_type == "kegg":
 
             if self.hparams.merge_val_test_set:
                 val_dataset = concatenate_datasets([self.dataset['test'], self.dataset['val']])
@@ -400,7 +385,6 @@ def main(args):
     """Main function to run the training process."""
     # Set random seed and environment variables
     pl.seed_everything(args.seed)
-    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     torch.cuda.empty_cache()
     torch.set_float32_matmul_precision("medium")
 
@@ -496,7 +480,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--num_gpus", type=int, default=1)
     parser.add_argument("--train_just_classifier", type=bool, default=True)
-    parser.add_argument("--dataset_type", type=str, choices=["variant_effect", "kegg", "variant_effect_coding", "variant_effect_non_snv"], default="kegg")
+    parser.add_argument("--dataset_type", type=str, choices=["kegg", "variant_effect_coding", "variant_effect_non_snv"], default="kegg")
     parser.add_argument("--kegg_data_dir_huggingface", type=str, default="wanglab/kegg")
     parser.add_argument("--truncate_dna_per_side", type=int, default=0)
 
