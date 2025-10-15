@@ -1,6 +1,7 @@
 # dna_vllm.py
 import os
-from typing import Optional, List, Union, Dict, Any
+import glob
+from typing import Optional, List, Dict, Any
 
 import torch
 import torch.nn as nn
@@ -11,7 +12,9 @@ from safetensors import safe_open
 
 from bioreason.models.dl.processing_dl import DLProcessor
 from bioreason.models.dl.chat_template_dl import CHAT_TEMPLATE
-from bioreason.models.evo2_tokenizer import Evo2Tokenizer
+from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
+
+register_evo2_tokenizer()
 
 
 class DNALLMModel(nn.Module):
@@ -27,7 +30,7 @@ class DNALLMModel(nn.Module):
     def __init__(
         self,
         ckpt_dir: str,
-        text_model_name: str = "Qwen/Qwen3-4B-Instruct",
+        text_model_name: str = "Qwen/Qwen3-4B",
         dna_model_name: Optional[str] = None,
         cache_dir: Optional[str] = None,
         max_length_dna: int = 2048,
@@ -65,13 +68,17 @@ class DNALLMModel(nn.Module):
         self.max_length_text = max_length_text
         self.max_model_len = max_model_len
 
-        # vLLM text model + tokenizer/config (HF) just for shapes and templating
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.dtype = torch.bfloat16
+
+        # Load the text model and tokenizer
         self.text_model = LLM(
             model=ckpt_dir,
             gpu_memory_utilization=gpu_memory_utilization,
             enable_prompt_embeds=True,
             trust_remote_code=True,
             max_model_len=self.max_model_len,
+            dtype=self.dtype,
         )
 
         self.text_tokenizer = AutoTokenizer.from_pretrained(ckpt_dir, trust_remote_code=True)
@@ -81,33 +88,60 @@ class DNALLMModel(nn.Module):
         self.text_tokenizer.chat_template = CHAT_TEMPLATE
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
 
-        # Add DNA special tokens (do NOT resize vLLM weights; we embed locally)
+        # Add DNA special tokens
         new_tokens = ["<|dna_start|>", "<|dna_pad|>", "<|dna_end|>"]
         self.text_tokenizer.add_special_tokens({"additional_special_tokens": new_tokens})
         self.dna_token_id = self.text_tokenizer.convert_tokens_to_ids("<|dna_pad|>")
 
-        # Local embedding layer to mirror the LLM embeddings (loaded from safetensors)
-        self._embedding_layer = nn.Embedding(self.text_config.vocab_size, self.text_config.hidden_size)
+        # Initialize local embedding layer
+        self._embedding_layer = nn.Embedding(self.text_config.vocab_size, self.text_config.hidden_size).to(
+            self.device, dtype=self.dtype
+        )
         print(
             f"🧬 Initialized local embedding layer with shape: "
             f"({self.text_config.vocab_size}, {self.text_config.hidden_size})"
         )
 
-        # Try to load embedding weights directly from the LLM checkpoint
-        self._load_input_embeddings_from_ckpt(ckpt_dir)
+        # Load embedding weights from checkpoint
+        safetensors_path = os.path.join(ckpt_dir, "model.safetensors")
+        if os.path.exists(safetensors_path):
+            with safe_open(safetensors_path, framework="pt", device=str(self.device)) as f:
+                embed_weights = f.get_tensor("model.embed_tokens.weight")
+                self._embedding_layer.weight.data = embed_weights.to(dtype=self.dtype)
+                print(f"✅ Loaded embedding weights from '{safetensors_path}'")
+        else:
+            # Try sharded checkpoints
+            shard_files = sorted(glob.glob(os.path.join(ckpt_dir, "model-*.safetensors")))
+            if not shard_files:
+                raise FileNotFoundError(f"No safetensors files found in {ckpt_dir}")
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self._embedding_layer = self._embedding_layer.to(self.device)
+            print(f"🧬 Found {len(shard_files)} sharded checkpoint files.")
+            loaded = False
+            for shard_file in shard_files:
+                with safe_open(shard_file, framework="pt", device=str(self.device)) as f:
+                    if "model.embed_tokens.weight" in f.keys():
+                        embed_weights = f.get_tensor("model.embed_tokens.weight")
+                        self._embedding_layer.weight.data = embed_weights.to(dtype=self.dtype)
+                        print(f"✅ Loaded embedding weights from shard: '{shard_file}'")
+                        loaded = True
+                        break
+            if not loaded:
+                raise RuntimeError("Embedding weights not found in any shard.")
+
+        self._embedding_layer = self._embedding_layer.to(self.device, dtype=self.dtype)
         print(f"🧬 Moved embedding layer to device: {self.device}")
 
-        # DNA encoder + tokenizer
+        # Load DNA encoder and tokenizer
         if dna_is_evo2:
             if dna_model_name is None:
                 raise ValueError("dna_model_name must be provided when dna_is_evo2=True")
+            if dna_embedding_layer is None:
+                raise ValueError("dna_embedding_layer is required for Evo2 to select which layer to extract.")
             from evo2 import Evo2
-            self.dna_model = Evo2(dna_model_name)  # Evo2 handles its internal loading
+
+            self.dna_model = Evo2(dna_model_name)
             self.dna_tokenizer = Evo2Tokenizer(self.dna_model.tokenizer)
-            self.dna_hidden_size = self._get_evo2_hidden_size(dna_embedding_layer)
+            self.dna_hidden_size = self.dna_model.model.config.hidden_size
         else:
             if dna_model_name is None:
                 raise ValueError("dna_model_name must be provided for HF DNA encoders")
@@ -117,84 +151,35 @@ class DNALLMModel(nn.Module):
             self.dna_tokenizer = AutoTokenizer.from_pretrained(dna_model_name, trust_remote_code=True)
             self.dna_hidden_size = self.dna_model.config.hidden_size
 
+        self.dna_model = self.dna_model.to(self.device, dtype=self.dtype)
         self.text_hidden_size = self.text_config.hidden_size
 
-        # Projection from DNA hidden size -> text hidden size
-        self.dna_projection = nn.Sequential(
-            nn.Linear(self.dna_hidden_size, self.text_hidden_size),
-            nn.GELU(),
-            nn.Linear(self.text_hidden_size, self.text_hidden_size),
+        # Create projection layer to map DNA embeddings to text model's embedding space
+        # Using single Linear layer to match training architecture in dna_llm.py
+        self.dna_projection = nn.Linear(self.dna_hidden_size, self.text_hidden_size).to(
+            device=self.device, dtype=self.dtype
         )
 
-        # Default eval/frozen (vLLM manages text model; DNA encoder typically eval at inference)
-        self._setup_default_eval_mode()
-
-        # Processor (for packing text + dna tokens)
-        self.processor = DLProcessor(tokenizer=self.text_tokenizer, dna_tokenizer=self.dna_tokenizer)
-
-        # Optionally restore trained projection and/or local DNA model
+        # Load custom components (projection weights)
         self.load_custom_components(ckpt_dir)
 
-    def _load_input_embeddings_from_ckpt(self, ckpt_dir: str) -> None:
-        """
-        Load the text LLM input embedding matrix into the local embedding layer from safetensors.
-        """
-        try:
-            safetensors_path = os.path.join(ckpt_dir, "model.safetensors")
-            if not os.path.exists(safetensors_path):
-                raise FileNotFoundError("model.safetensors not found. Looking for sharded checkpoints...")
+        # Set models to eval mode
+        self._setup_default_eval_mode()
 
-            with safe_open(safetensors_path, framework="pt", device="cpu") as f:
-                # Common name for Qwen-like models
-                if "model.embed_tokens.weight" in f.keys():
-                    embed_weights = f.get_tensor("model.embed_tokens.weight")
-                else:
-                    # Fallback to an alt key (rare)
-                    embed_weights = f.get_tensor("lm_head.weight")  # may not match; best-effort
-                self._embedding_layer.weight.data = embed_weights
-                print(f"✅ Loaded embedding weights from '{safetensors_path}'")
-
-        except Exception as e:
-            print(f"⚠️ Could not load weights from primary safetensors file: {e}. Trying sharded files...")
-            try:
-                import glob
-                shard_files = sorted(glob.glob(os.path.join(ckpt_dir, "model-*.safetensors")))
-                if not shard_files:
-                    raise FileNotFoundError("No sharded safetensors files found.")
-
-                loaded = False
-                for shard_file in shard_files:
-                    with safe_open(shard_file, framework="pt", device="cpu") as f:
-                        if "model.embed_tokens.weight" in f.keys():
-                            embed_weights = f.get_tensor("model.embed_tokens.weight")
-                            self._embedding_layer.weight.data = embed_weights
-                            print(f"✅ Loaded embedding weights from shard: '{shard_file}'")
-                            loaded = True
-                            break
-                if not loaded:
-                    raise RuntimeError("Embedding weights not found in any shard.")
-            except Exception as e_shard:
-                print(f"❌ CRITICAL: Failed to load embedding weights from checkpoint files: {e_shard}")
-                print("   The model will use RANDOMLY INITIALIZED embeddings, which will degrade output quality.")
-
-    def _get_evo2_hidden_size(self, layer_name: Optional[str]) -> int:
-        if layer_name is None:
-            raise ValueError("dna_embedding_layer is required for Evo2 to select which layer to extract.")
-        # Query a single forward to find the dimensionality for the requested layer
-        # We avoid heavy work; Evo2 exposes model.config.hidden_size, but layers may differ.
-        # Heuristic: use base hidden size; if mismatch arises, projection will handle it.
-        return self.dna_model.model.config.hidden_size
+        # Create processor for handling inputs
+        self.processor = DLProcessor(tokenizer=self.text_tokenizer, dna_tokenizer=self.dna_tokenizer)
 
     def _setup_default_eval_mode(self):
         """
-        Put components into eval mode. vLLM text backbone is managed by vLLM.
+        Set all model components to eval mode with frozen parameters by default.
+        Note: Text model parameter freezing is skipped since vLLM handles it.
         """
         # DNA encoder
         self.dna_model.eval()
         for p in self.dna_model.parameters():
             p.requires_grad = False
 
-        # Projection
+        # DNA projection
         self.dna_projection.eval()
         for p in self.dna_projection.parameters():
             p.requires_grad = False
@@ -236,7 +221,7 @@ class DNALLMModel(nn.Module):
 
         # Project to text space
         hidden_states = hidden_states.to(
-            device=self.dna_projection[0].weight.device, dtype=self.dna_projection[0].weight.dtype
+            device=self.dna_projection.weight.device, dtype=self.dna_projection.weight.dtype
         )
         projected = self.dna_projection(hidden_states)  # (N, L, H_text)
 
@@ -328,31 +313,14 @@ class DNALLMModel(nn.Module):
 
     def load_custom_components(self, llm_dir: str) -> None:
         """
-        - Load trained dna_projection if dna_projection.pt exists.
-        - Optionally load a local DNA encoder (directory) if present at <llm_dir>/dna_model.
+        Load trained dna_projection. DNA encoder is already loaded from HuggingFace in __init__.
         """
-        # Projection
-        proj_path = os.path.join(llm_dir, "dna_projection.pt")
-        if os.path.exists(proj_path):
-            print(f"🔧 Loading trained DNA projection from {proj_path}")
-            try:
-                state = torch.load(proj_path, map_location="cpu")
-                self.dna_projection.load_state_dict(state, strict=False)
-                print("✅ Loaded DNA projection weights")
-            except Exception as e:
-                print(f"⚠️ Could not load dna_projection.pt: {e} (using random init)")
+        # DNA projection
+        projection_path = os.path.join(llm_dir, "dna_projection.pt")
+        if os.path.exists(projection_path):
+            state = torch.load(projection_path, map_location=self.device)
+            self.dna_projection.load_state_dict(state, strict=True)
+            self.dna_projection = self.dna_projection.to(device=self.device, dtype=self.dtype)
+            print(f"✅ Loaded DNA projection from {projection_path}")
         else:
-            print("ℹ️ No dna_projection.pt found; using fresh init")
-
-        # Optional local DNA model directory (HF)
-        dna_model_path = os.path.join(llm_dir, "dna_model")
-        if (not self.dna_is_evo2) and os.path.isdir(dna_model_path):
-            print(f"📁 Found local DNA model at {dna_model_path}")
-            try:
-                self.dna_model = AutoModelForMaskedLM.from_pretrained(dna_model_path).to(self.device)
-                self.dna_model.eval()
-                for p in self.dna_model.parameters():
-                    p.requires_grad = False
-                print("✅ Local DNA model loaded and frozen")
-            except Exception as e:
-                print(f"⚠️ Error loading local DNA model: {e} (keeping original)")
+            raise FileNotFoundError(f"DNA projection not found at {projection_path}")
