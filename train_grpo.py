@@ -1,11 +1,12 @@
 import os
 import re
+import tempfile
 
 import pathlib
 from argparse import ArgumentParser
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set, Tuple
 from dataclasses import dataclass, field
-
+import wandb
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -22,26 +23,31 @@ from transformers import (
 
 from datasets import load_dataset, DatasetDict
 
-from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training
+from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training, PeftModel
 from transformers import BitsAndBytesConfig
 
-import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
-from pytorch_lightning.loggers import WandbLogger
+from trl import ModelConfig, ScriptArguments, TrlParser
 
-from trl import GRPOConfig, GRPOTrainer, ModelConfig, ScriptArguments, TrlParser, get_peft_config
-#from unsloth import FastLanguageModel, is_bfloat16_supported
+# from bioreason2.models.protein_llm import ProteinLLMModel
+# from bioreason2.protein_modules import ESMProteinModule
+# from bioreason2.models.pl.processing_pl import PLProcessor
+# from bioreason2.trainer import ProteinLLMGRPOTrainer, ProteinLLMGRPOConfig
+# # from bioreason2.dataset.cafa5.collate import add_structures_to_dataset
+# from bioreason2.dataset.cafa5.load import load_cafa5_dataset
+# from bioreason2.dataset.cafa5.processor import _GO_DEPTH
+# from bioreason2.models.protein_llm import _get_target_modules
 
-from bioreason.models.dna_llm import DNALLMModel
+from bioreason.models.dna_llm import DNALLMModel, _get_target_modules
 from bioreason.dna_modules import NucleotideDNAModule
 from bioreason.models.dl.processing_dl import DLProcessor
 from bioreason.trainer import DNALLMGRPOTrainer, DNALLMGRPOConfig
-from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
-register_evo2_tokenizer()
+# from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
+# register_evo2_tokenizer()
 
 # Custom TrainerCallback to override the saving mechanism
 from transformers import TrainerCallback, TrainerState, TrainerControl
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
+
 
 class SaveWithPyTorchCallback(TrainerCallback):
     """Custom callback to save models with PyTorch's native save mechanism instead of safetensors"""
@@ -62,7 +68,7 @@ class SaveWithPyTorchCallback(TrainerCallback):
         # Save using PyTorch directly
         torch.save(unwrapped_model.state_dict(), checkpoint_path)
         
-        # DNALLMModel doesn't have a direct config attribute, so we need to save
+        # ProteinLLMModel doesn't have a direct config attribute, so we need to save
         # the configs of its sub-models
         if hasattr(unwrapped_model, "text_model"):
             if hasattr(unwrapped_model.text_model, "config"):
@@ -80,55 +86,9 @@ class SaveWithPyTorchCallback(TrainerCallback):
         control.should_save = False
         return control
 
-def _get_target_modules(model: DNALLMModel):
-    # Apply LoRA to all linear layers in the text model
-    target_modules = []
-
-    # Get all unique linear layer names
-    seen_names = set()
-    for name, module in model.text.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            names = name.split(".")
-            target_name = names[-1]  # Use the last part of the name
-
-            # Skip output head but include all other linear layers
-            if target_name != "lm_head" and target_name not in seen_names:
-                target_modules.append(target_name)
-                seen_names.add(target_name)
-
-    # Add attention-specific layers
-    attention_patterns = [
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "out_proj",
-        "query",
-        "key",
-        "value",
-    ]
-    for pattern in attention_patterns:
-        if pattern not in seen_names:
-            target_modules.append(pattern)
-
-    # Return all unique layer names to apply LoRA to all layers
-    return list(target_modules)
-
-
-def extract_xml_answer(text: str) -> str:
-    # answer = text.split("<answer>")[-1]
-    # answer = answer.split("</answer>")[0]
-    answer = text.split("</think>")[-1]
-    return answer.strip()
-
-def extract_hash_answer(text: str) -> str | None:
-    if "####" not in text:
-        return None
-    return text.split("####")[1].strip()
-
 def get_kegg_questions() -> Dataset:
     data = load_dataset('wanglab/kegg', 'default') # type: ignore
-    example_dna_sequences = ["ATCTACATGCAT", "CAGCAGCTACAG", "CATCACATCGACATCGAC"]
-    num_dna_sequences = 2 # TODO: Change to 2!
+    num_dna_sequences = 2
 
     data = data.map(lambda x: { # type: ignore
         'prompt': [
@@ -147,47 +107,9 @@ def get_kegg_questions() -> Dataset:
 
     return data
 
-# uncomment middle messages for 1-shot prompting
-def get_gsm8k_questions(question_prompt: str) -> Dataset:
-    data = load_dataset('openai/gsm8k', 'main') # type: ignore
-
-    example_dna_sequences = ["ATCTACATGCAT", "CAGCAGCTACAG", "CATCACATCGACATCGAC"]
-    data = data.map(lambda x: { # type: ignore
-        'prompt': [ 
-
-            {
-                'role': 'user',
-                'content': [
-                    *({'type': 'dna', 'text': None} for _ in range(len(example_dna_sequences))),
-                    {'type': 'text', 'text': 'Give me a short introduction to large language model.'}
-                ]
-            },
-        ],
-        'dna_sequences': [dna for dna in example_dna_sequences],
-        'answer': extract_hash_answer(x['answer']),
-    }) # type: ignore
-    
-    return data # type: ignore
-
-def get_gsm8k_questions_old(question_prompt: str) -> Dataset:
-    data = load_dataset('openai/gsm8k', 'main') # type: ignore
-
-    example_dna_sequences = ["ATCTACATGCAT", "CAGCAGCTACAG", "CATCACATCGACATCGAC"]
-    data = data.map(lambda x: { # type: ignore
-        'prompt': [
-            {
-                'role': 'user',
-                'content': [
-                    *({'type': 'dna', 'text': None} for _ in range(len(example_dna_sequences))),
-                    {'type': 'text', 'text': question_prompt.format(Question=x['question'])}
-                ]
-            },
-        ],
-        'dna_sequences': [dna for dna in example_dna_sequences],
-        'answer': extract_hash_answer(x['answer']),
-    }) # type: ignore
-    
-    return data # type: ignore
+def extract_xml_answer(text: str) -> str:
+    answer = text.split("</think>")[-1]
+    return answer.strip()
 
 # Reward functions
 def correctness_reward_func(prompts, completions, answer, **kwargs) -> list[float]:
@@ -230,33 +152,13 @@ def xmlcount_reward_func(completions, **kwargs) -> list[float]:
     return [count_xml(c) for c in contents]
 
 # Format into conversation
-def make_conversation(example):
-    return {
-        "prompt": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": example["problem"]},
-        ],
-    }
-
-def make_conversation_image(example):
-    return {
-        "prompt": [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image"},
-                ],
-            },
-        ],
-    }
-
 @dataclass
 class GRPOModelConfig(ModelConfig):
     
     # "HuggingFaceTB/SmolLM-135M-Instruct"
     # "Qwen/Qwen2.5-0.5B-Instruct"
-    model_name_or_path: str = field(default="Qwen/Qwen3-0.6B", metadata={"help": "Model checkpoint for weights initialization."})
-    dna_model_name_or_path: str = field(default="InstaDeepAI/nucleotide-transformer-v2-100m-multi-species", metadata={"help": "Model checkpoint for weights initialization."})
+    text_model_name: str = field(default="Qwen/Qwen3-0.6B", metadata={"help": "Model checkpoint for weights initialization."})
+    dna_model_name: str = field(default="InstaDeepAI/nucleotide-transformer-v2-100m-multi-species", metadata={"help": "Model checkpoint for weights initialization."})
     cache_dir: str = field(default=None, metadata={"help": "Path to model cache directory."})
     max_length_text: int = field(default=800, metadata={"help": "Maximum length of text sequences."})
     max_length_dna: int = field(default=800, metadata={"help": "Maximum length of DNA sequences, in groups of 6 nucleotides."})
@@ -268,7 +170,9 @@ class GRPOModelConfig(ModelConfig):
         default="embed_tokens",
         metadata={"help": "Model layers to unfreeze & train."},
     )
-    freeze_dna_modules: bool = False
+    dna_model_finetune: bool = False
+    dna_projection_finetune: bool = True
+    peft_ckpt: bool = False
 
 @dataclass
 class GRPOScriptArguments(ScriptArguments):
@@ -276,6 +180,7 @@ class GRPOScriptArguments(ScriptArguments):
     Script arguments for the GRPO training script.
     """
     dataset_name: str = field(default="wanglab/kegg", metadata={"help": "Dataset name with default."})
+    full_ckpt: str = field(default=None, metadata={"help": "Path to full checkpoint to load"})
     data_file_paths: str = field(
         default=None,
         metadata={"help": "Paths to data files, separated by ':'"},
@@ -292,26 +197,10 @@ class GRPOScriptArguments(ScriptArguments):
         #default_factory=lambda: ["accuracy", "format"],
         default_factory=lambda: ["xmlcount", "soft_format", "strict_format", "less_than_4", "correctness"],
         #metadata={"help": "List of reward functions. Possible values: 'accuracy', 'format'"},
-        metadata={"help": "List of reward functions. Possible values: 'accuracy', 'xmlcount', 'soft_format', 'strict_format', 'less_than_4', 'correctness'"},
+        metadata={"help": "List of reward functions. Possible values: 'accuracy', 'xmlcount', 'soft_format', 'strict_format', 'less_than_4', 'correctness', 'depth'"},
     )
-    # max_pixels: Optional[int] = field(
-    #     default=12845056,
-    #     metadata={"help": "Maximum number of pixels for the image (for QwenVL)"},
-    # )
-    # min_pixels: Optional[int] = field(
-    #     default=3136,
-    #     metadata={"help": "Minimum number of pixels for the image (for QwenVL)"},
-    # )
-    # task_type: Optional[str] = field(
-    #     default=None,
-    #     metadata={"help": "Choose task type: 'default', 'gui', ..."},
-    # )
-
-
 
 reward_funcs_registry = {
-    # "accuracy": accuracy_reward,
-    # "format": format_reward,
     "xmlcount": xmlcount_reward_func,
     "soft_format": soft_format_reward_func,
     "strict_format": strict_format_reward_func,
@@ -319,82 +208,79 @@ reward_funcs_registry = {
     "correctness": correctness_reward_func,
 }
 
-def get_vlm_module(model_name_or_path):
-    if any(mini_name in model_name_or_path.lower() for mini_name in ["qwen", "smol"]):
+def get_vlm_module(text_model_name):
+    if any(mini_name in text_model_name.lower() for mini_name in ["qwen", "smol"]):
         return NucleotideDNAModule
     else:
-        raise ValueError(f"Unsupported model: {model_name_or_path}")
-    
-def _get_target_modules(model):
-    # Apply LoRA to all linear layers in the text model
-    target_modules = []
+        raise ValueError(f"Unsupported model: {text_model_name}")
 
-    # Get all unique linear layer names
-    seen_names = set()
-    for name, module in model.text_model.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            names = name.split(".")
-            target_name = names[-1]  # Use the last part of the name
-
-            # Skip output head but include all other linear layers
-            if target_name != "lm_head" and target_name not in seen_names:
-                target_modules.append(target_name)
-                seen_names.add(target_name)
-
-    # Add attention-specific layers
-    attention_patterns = [
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "out_proj",
-        "query",
-        "key",
-        "value",
-    ]
-    for pattern in attention_patterns:
-        if pattern not in seen_names:
-            target_modules.append(pattern)
-
-    # Return all unique layer names to apply LoRA to all layers
-    return list(target_modules)
-
-
-def _prep_for_training(model, training_args, dna_model_finetune: bool = False) -> LoraConfig:
+def _prep_for_training(
+    model: DNALLMModel,
+    training_args,
+    dna_model_finetune: bool = False,
+    dna_projection_finetune: bool = True
+    ) -> LoraConfig:
     """
-    Load and configure the DNALLMModel.
-    """
-
-    # Freeze DNA encoder parameters
+    Load and configure the ProteinLLMModel for training.
+    Since ProteinLLMModel starts everything in .eval() mode with frozen parameters,
+    we need to systematically enable training for each component based on parameters.
+    """    
+    # DNA encoder
     if dna_model_finetune:
-        pass
+        model.dna_model.train()
+        print("DNA model is training")
+        for param in model.dna_model.parameters():
+            param.requires_grad = True
     else:
+        model.dna_model.eval()
+        print("DNA model is eval")
         for param in model.dna_model.parameters():
             param.requires_grad = False
+    
+    # DNA projection
+    if dna_projection_finetune:
+        model.dna_projection.train()
+        print("DNA projection is training")
+        for param in model.dna_projection.parameters():
+            param.requires_grad = True
+    else:
+        model.dna_projection.eval()
+        print("DNA projection is eval")
+        for param in model.dna_projection.parameters():
+            param.requires_grad = False
 
-    target_modules = _get_target_modules(model)
 
-    lora_config = LoraConfig(
-        r=training_args.lora_r,
-        lora_alpha=training_args.lora_alpha,
-        lora_dropout=training_args.lora_dropout,
-        target_modules=target_modules,
-        init_lora_weights="gaussian",
-        bias="none",
-        task_type="CAUSAL_LM",
-    )
+    # Text model: setup LoRA and set to train mode
+    if training_args.lora_r == 0:
+        # Text model: full finetune
+        model.text_model.train()
+        print("Text model is training")
+        for param in model.text_model.parameters():
+            param.requires_grad = True
+        return None
+    
+    else:
+        # Text model: setup LoRA and set to train mode
+        target_modules = _get_target_modules(model)
 
-    # Prepare text model for training
-    model.text_model = prepare_model_for_kbit_training(model.text_model)
-    model.text_model = get_peft_model(model.text_model, lora_config)
+        lora_config = LoraConfig(
+            r=training_args.lora_r,
+            lora_alpha=training_args.lora_alpha,
+            lora_dropout=training_args.lora_dropout,
+            target_modules=target_modules,
+            init_lora_weights="gaussian",
+            bias="none",
+            task_type="CAUSAL_LM",
+        )
 
-    # Make projection layer trainable
-    for param in model.dna_projection.parameters():
-        param.requires_grad = True
+        model.text_model = prepare_model_for_kbit_training(model.text_model)
+        model.text_model = get_peft_model(model.text_model, lora_config)
+        model.text_model.train()
 
-    return lora_config
+        return lora_config
+
 
 def main(script_args, training_args, model_args):
-
     print(training_args.output_dir)
     #pl.seed_everything(args.seed)
     # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
@@ -408,25 +294,37 @@ def main(script_args, training_args, model_args):
 
     # Load model
     model = DNALLMModel(
-        text_model_name=model_args.model_name_or_path,
-        dna_model_name=model_args.dna_model_name_or_path,
+        text_model_name=model_args.text_model_name,
+        dna_model_name=model_args.dna_model_name,
         cache_dir=model_args.cache_dir,
         max_length_text=model_args.max_length_text,
         max_length_dna=model_args.max_length_dna,
         text_model_finetune=True,
-        dna_model_finetune=not model_args.freeze_dna_modules
+        dna_model_finetune=model_args.dna_model_finetune,
+        device="cuda",
     )
+    
+        
+    #move the model to GPU
+    model = model.to("cuda")
+
+    model.text_model.config.use_cache = False
 
     # load checkpoint
     if model_args.sft_checkpoint is not None:
+        training_args.vllm_ckpt = model_args.sft_checkpoint
         print(f"Loading SFT checkpoint from {model_args.sft_checkpoint}")
+        model.text_model = AutoModelForCausalLM.from_pretrained(
+            model_args.sft_checkpoint, trust_remote_code=True
+        )
+        #model.load_custom_components(model_args.sft_checkpoint, go_obo_path=ONTOLOGY_PATH, precomputed_embeddings_path=GO_EMBD_PATH)
+        
         
         # Determine if it's a directory (PEFT format) or file (PyTorch state dict)
-        is_directory = os.path.isdir(model_args.sft_checkpoint)
+        is_directory = os.path.isdir(model_args.sft_checkpoint) 
+        print(f"model_args.peft_ckpt: {model_args.peft_ckpt}")
         
-        if is_directory:
-            # It's a PEFT checkpoint directory - load properly with PEFT
-            from peft import PeftModel
+        if is_directory and model_args.peft_ckpt:
             
             # First initialize the text model with PEFT
             print("Loading as PEFT checkpoint directory")
@@ -443,7 +341,24 @@ def main(script_args, training_args, model_args):
             print("Merging SFT LoRA weights into base model...")
             model.text_model = model.text_model.merge_and_unload()
             print("Successfully merged SFT knowledge into base model")
-            
+
+        elif is_directory and not model_args.peft_ckpt:
+            #use hf from_pretrained
+            model.text_model = AutoModelForCausalLM.from_pretrained(
+                model_args.sft_checkpoint, trust_remote_code=True
+            )
+            print(f"CALLING FIRST PREP_FOR_TRAINING with dna_model_finetune: {getattr(model_args, 'dna_model_finetune', False)}, dna_projection_finetune: {getattr(model_args, 'dna_projection_finetune', False)}")
+            lora_config = _prep_for_training(
+                model,
+                model_args,  # must contain lora_r, lora_alpha, lora_dropout
+                dna_model_finetune = getattr(model_args, "dna_model_finetune", False),
+                dna_projection_finetune = getattr(model_args, "dna_projection_finetune", False)
+            )
+            print("model.text_model after loading", model.text_model)
+            #check the tokenizer:
+
+            print("Successfully loaded SFT checkpoint")
+
         else:
             # It's a PyTorch state dict file
             print("Loading as PyTorch state dict file")
@@ -476,7 +391,11 @@ def main(script_args, training_args, model_args):
             if lora_prefix:
                 print("Detected LoRA weights in state dict")
                 # First prepare model for LoRA training
-                _prep_for_training(model, model_args, dna_model_finetune=model_args.freeze_dna_modules)
+                print(f"CALLING SECOND PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
+                _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
+                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
+                                                        protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
+                                                        go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
                 
                 # Print some diagnostic info about the keys
                 model_keys = set(model.state_dict().keys())
@@ -521,7 +440,7 @@ def main(script_args, training_args, model_args):
                 print("Standard weights detected - remapping keys")
                 # Map keys to model structure
                 magic = {k.replace("text_model", "text_model.base_model.model"): v for k, v in magic.items()}
-                magic = {k.replace("dna_model", "dna_model"): v for k, v in magic.items()}
+                magic = {k.replace("protein_model", "protein_model"): v for k, v in magic.items()}
                 
                 # Fix the shared memory tensors issue by making a copy of weights
                 for key in list(magic.keys()):
@@ -533,39 +452,59 @@ def main(script_args, training_args, model_args):
                 print(f"Loaded checkpoint with {len(result.missing_keys)} missing keys and {len(result.unexpected_keys)} unexpected keys")
                 
                 # Now prepare for LoRA training
-                _prep_for_training(model, model_args, dna_model_finetune=model_args.freeze_dna_modules)
+                print(f"CALLING THIRD PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
+                _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
+                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
+                                                    protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
+                                                    go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
+    
     else:
         # No checkpoint, just prepare for training
-        _prep_for_training(model, model_args, dna_model_finetune=model_args.freeze_dna_modules)
+        print(f"CALLING FOURTH PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
+        _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
+                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
+                                                    protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
+                                                    go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
+    if script_args.full_ckpt is not None:
+        print(f"Loading full checkpoint from {script_args.full_ckpt}")
+        checkpoint_path = os.path.join(script_args.full_ckpt, "pytorch_model.bin")
+        
+        if os.path.exists(checkpoint_path):
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            missing, unexpected = model.load_state_dict(checkpoint, strict=False)
+            print("Missing keys:", missing)
+            print("Unexpected keys:", unexpected)
+            
+            print(f"Loaded checkpoint with {len(missing)} missing keys and {len(unexpected)} unexpected keys")
+        else:
+            print(f"Checkpoint file not found at {checkpoint_path}")
 
-    # Get reward functions
+
+    # Move the model to GPU
+    model = model.to(training_args.device)
+
+    vlm_module_cls = get_vlm_module(model_args.text_model_name)
+
+    # TODO: Make rewards come from the vlm_module_cls
     reward_funcs = [reward_funcs_registry[func] for func in script_args.reward_funcs]
-    # reward_funcs = [
-    #         xmlcount_reward_func,
-    #         soft_format_reward_func,
-    #         strict_format_reward_func,
-    #         int_reward_func,
-    #         correctness_reward_func,
-    #     ]
-    print("reward_funcs:", reward_funcs)
-
-    vlm_module_cls = get_vlm_module(model_args.model_name_or_path)
-    print("using vlm module:", vlm_module_cls.__name__)
-    question_prompt = vlm_module_cls.get_question_template()
-
-
-    dataset = get_kegg_questions()
     
-    #dataset = get_gsm8k_questions(question_prompt)
+    print("reward_funcs:", reward_funcs)
+    print(f"Tokenizer loaded successfully. Vocab size: {len(model.text_tokenizer)}")
+    print(f"ID for '<|dna_pad|>' is: {model.text_tokenizer.convert_tokens_to_ids('<|dna_pad|>')}")
 
-    print(dataset)
-
-    #print('ITEM ONE OF THE DATASET', dataset['train'][0])
+    
+    dataset = get_kegg_questions()
 
     # Custom callback to handle saving with PyTorch's native mechanism
     custom_save_callback = SaveWithPyTorchCallback()
+    print("model.text_model:", model.text_model)
+    trainable_params = [p for p in model.parameters() if p.requires_grad]
+    total_trainable = sum(p.numel() for p in trainable_params)
+    total_params = sum(p.numel() for p in model.parameters())
+    print(f"Trainable parameters: {total_trainable:,} / {total_params:,} ({100 * total_trainable / total_params:.2f}%)")
 
     # Initialize the GRPO trainer with custom callback
+    print("training_args:", training_args)
     trainer = DNALLMGRPOTrainer(
         model=model,
         reward_funcs=reward_funcs,
@@ -573,10 +512,9 @@ def main(script_args, training_args, model_args):
         dna_module=vlm_module_cls(),
         train_dataset=dataset['train'],
         eval_dataset=dataset['val'] if training_args.eval_strategy != "no" else None,
-        peft_config=get_peft_config(model_args),
-        attn_implementation=model_args.attn_implementation,
-        torch_dtype=model_args.torch_dtype,
-        callbacks=[custom_save_callback],  # Add our custom callback
+        peft_config=None,
+        callbacks=[custom_save_callback],
+        processing_class=model.processor,  # Add our custom callback
     )
 
     # Set the trainer to save in PyTorch format instead of safetensors
@@ -587,6 +525,16 @@ def main(script_args, training_args, model_args):
     #     trainer.train(resume_from_checkpoint=True)
     # else:
     #     trainer.train()
+    print("="*50)
+    print("Verifying Trainable Parameters...")
+    print("="*50)
+    total_trainable_params = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            print(f"  [TRAINABLE]: {name} | Size: {param.shape} | Device: {param.device}")
+            total_trainable_params += param.numel()
+    print(f"\nTotal number of trainable parameters: {total_trainable_params:,}")
+    print("="*50)
 
     # Train and push the model to the Hub
     trainer.train()
@@ -595,15 +543,19 @@ def main(script_args, training_args, model_args):
 if __name__ == "__main__":
     # os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
     print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
+    # Avoid HF datasets multiprocessing issues under multi-rank runs
+    os.environ.setdefault("HF_DATASETS_DISABLE_MULTIPROCESSING", "1")
     parser = TrlParser((GRPOScriptArguments, DNALLMGRPOConfig, GRPOModelConfig))
     script_args, training_args, model_args = parser.parse_args_and_config()
     
     # Ensure we use PyTorch's save mechanism instead of safetensors
     training_args.save_safetensors = False
+    # Prefer launcher-provided endpoint if available (set by run_grpo_multinode.sh)
+    training_args.vllm_server_base_url = os.environ.get("VLLM_BASE_URL")
 
     main(script_args, training_args, model_args)
     
-    # parser.add_argument("--wandb_project", type=str, default="dna-text-finetune")
+    # parser.add_argument("--wandb_project", type=str, default="protein-text-finetune")
     # parser.add_argument("--wandb_entity", type=str, default="adibvafa")
 
     # args = parser.parse_args()

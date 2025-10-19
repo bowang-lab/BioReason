@@ -5,7 +5,6 @@ from transformers import (
 )
 from typing import Dict, Any, Union, List, Optional, Callable, Type
 from trl.data_utils import maybe_apply_chat_template
-from trl import SFTTrainer
 import torch
 
 from bioreason.dna_modules.dna_module import DNABaseModule
@@ -101,7 +100,7 @@ class NucleotideDNAModule(DNABaseModule):
         Returns:
             List of parameter names to exclude from generation calls
         """
-        return []
+        return ['answer', 'prompt']
 
     def get_custom_processing_keywords(self) -> List[tuple]:
         """

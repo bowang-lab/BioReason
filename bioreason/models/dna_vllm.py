@@ -278,6 +278,7 @@ class DNALLMModel(nn.Module):
 
         # 2) Inject DNA embeddings where <|dna_pad|> appears
         if dna_tokenized is not None and batch_idx_map is not None:
+            dna_tokenized = {k: v.to(self.device) for k, v in dna_tokenized.items()}
             batch_dna_embeds = self.process_dna_embeddings(dna_tokenized, batch_idx_map, batch_size)
 
             mask = (input_ids == self.dna_token_id)  # (B, T)

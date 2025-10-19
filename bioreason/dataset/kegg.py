@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Tuple
 
 from bioreason.dataset.utils import torch_to_hf_dataset
 from bioreason.models.dl.processing_dl import DLProcessor
+from bioreason.dna_modules.nucleotide_module import NucleotideDNAModule
 from trl.data_utils import maybe_apply_chat_template
 
 
@@ -219,6 +220,16 @@ def format_kegg_for_llm(example: Dict[str, Any]) -> Dict[str, Any]:
         "answer": example["answer"],
     }
 
+def _truncate_after_assistant_start(text: str) -> str:
+    """
+    Keep everything up to and including the first '<|im_start|>assistant\n',
+    drop any assistant answer that follows.
+    """
+    marker = "<|im_end|>\n<|im_start|>assistant\n"
+    idx = text.find(marker)
+    if idx != -1:
+        return text[: idx + len(marker)]
+    return text
 
 def qwen_dna_collate_fn(
     examples: List[Dict],
@@ -226,6 +237,7 @@ def qwen_dna_collate_fn(
     max_length_text: int,
     max_length_dna: int,
     return_answer_in_batch: bool = False,
+    truncate_for_generation: bool = True
 ) -> Dict:
     """
     Custom collate function for Qwen DNA models.
@@ -233,9 +245,9 @@ def qwen_dna_collate_fn(
     Creates a batch with proper labels for supervised fine-tuning where only
     the assistant responses contribute to the loss calculation.
     """
-    prompts_text = [
-        maybe_apply_chat_template(example, processor)["prompt"] for example in examples
-    ]
+
+    dna_module = NucleotideDNAModule()
+    prompts_text = dna_module.prepare_prompt(processing_class=processor, inputs=examples)
     batch_dna_sequences = [example["dna_sequences"] for example in examples]
 
     batch = processor(
@@ -329,6 +341,59 @@ def qwen_dna_collate_fn(
     # Add answer to batch
     if return_answer_in_batch:
         batch["answer"] = [example["answer"].strip() for example in examples]
+
+    prompts_text = [_truncate_after_assistant_start(p) for p in prompts_text]
+
+    if truncate_for_generation:
+        device = batch["input_ids"].device
+        pad_id = processor.tokenizer.pad_token_id
+        if pad_id is None:
+            # fall back to eos if pad is unset
+            pad_id = processor.tokenizer.eos_token_id
+
+        # composite marker to mirror _truncate_after_assistant_start
+        composite = "<|im_end|>\n<|im_start|>assistant\n"
+        comp_ids = processor.tokenizer.encode(composite, add_special_tokens=False)
+        comp_t = torch.tensor(comp_ids, device=device)
+        comp_len = len(comp_ids)
+
+        B, L = batch["input_ids"].shape
+        keep_lens: List[int] = []
+
+        for i in range(B):
+            ids = batch["input_ids"][i]
+            keep = L  # default: keep all if marker not found
+            # scan for FIRST occurrence to match your text truncation
+            for j in range(0, L - comp_len + 1):
+                if torch.all(ids[j:j+comp_len] == comp_t):
+                    keep = j + comp_len
+                    break
+            keep_lens.append(keep)
+
+        new_max = max(keep_lens) if keep_lens else 0
+
+        # allocate new left-padded tensors
+        new_input_ids = torch.full((B, new_max), pad_id, dtype=batch["input_ids"].dtype, device=device)
+        new_attention = torch.zeros((B, new_max), dtype=batch["attention_mask"].dtype, device=device)
+        new_labels = torch.full((B, new_max), -100, dtype=batch["labels"].dtype, device=device)
+
+        for i, k in enumerate(keep_lens):
+            if k == 0:
+                continue
+            # take the first k tokens (truncate from the RIGHT), then left-pad to new_max
+            src_ids = batch["input_ids"][i, :k]
+            src_attn = batch["attention_mask"][i, :k]
+            src_lbls = batch["labels"][i, :k]
+
+            new_input_ids[i, -k:] = src_ids
+            new_attention[i, -k:] = src_attn
+            new_labels[i, -k:] = src_lbls
+
+        batch["input_ids"] = new_input_ids
+        batch["attention_mask"] = new_attention
+        batch["labels"] = new_labels
+
+    batch["prompt"] = prompts_text
 
     return batch
 

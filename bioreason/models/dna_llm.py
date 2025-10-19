@@ -13,7 +13,43 @@ from typing import Optional, List, Dict, Any, Union, Tuple
 from bioreason.utils.dna_utils import DNAInput
 from bioreason.models.dl.processing_dl import DLProcessor
 from bioreason.models.dl.chat_template_dl import CHAT_TEMPLATE
-from bioreason.models.evo2_tokenizer import Evo2Tokenizer
+from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
+
+register_evo2_tokenizer()
+
+def _get_target_modules(model):
+    # Apply LoRA to all linear layers in the text model
+    target_modules = []
+
+    # Get all unique linear layer names
+    seen_names = set()
+    for name, module in model.text_model.named_modules():
+        if isinstance(module, torch.nn.Linear):
+            names = name.split(".")
+            target_name = names[-1]  # Use the last part of the name
+
+            # Skip output head but include all other linear layers
+            if target_name != "lm_head" and target_name not in seen_names:
+                target_modules.append(target_name)
+                seen_names.add(target_name)
+
+    # Add attention-specific layers
+    attention_patterns = [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "out_proj",
+        "query",
+        "key",
+        "value",
+    ]
+    for pattern in attention_patterns:
+        if pattern not in seen_names:
+            target_modules.append(pattern)
+
+    # Return all unique layer names to apply LoRA to all layers
+    return list(target_modules)
+
 
 class DNALLMModel(nn.Module):
     """
@@ -34,7 +70,8 @@ class DNALLMModel(nn.Module):
         text_model_finetune: bool = True,
         dna_model_finetune: bool = True,
         dna_is_evo2: bool = False,
-        dna_embedding_layer: str = None
+        dna_embedding_layer: str = None,
+        device: str = "cuda",
     ):
         """
         Initialize the DNALLMModel.
@@ -52,6 +89,8 @@ class DNALLMModel(nn.Module):
         """
         super().__init__()
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
         self.text_model_finetune = text_model_finetune
         self.dna_model_finetune = dna_model_finetune
         self.max_length_dna = max_length_dna
@@ -62,9 +101,15 @@ class DNALLMModel(nn.Module):
 
         # Load the text model and tokenizer
         self.text_model = AutoModelForCausalLM.from_pretrained(
-            text_model_name, cache_dir=cache_dir, trust_remote_code=True
+            text_model_name,
+            cache_dir=cache_dir,
+            trust_remote_code=True,
+            device_map=device
         )
-        self.text_tokenizer = AutoTokenizer.from_pretrained(text_model_name, trust_remote_code=True)
+        self.text_tokenizer = AutoTokenizer.from_pretrained(
+            text_model_name,
+            trust_remote_code=True
+        )
         self.text_config = self.text_model.config
         self.text_tokenizer.chat_template = CHAT_TEMPLATE
         self.text_tokenizer.pad_token = self.text_tokenizer.eos_token
@@ -267,16 +312,74 @@ class DNALLMModel(nn.Module):
         Returns:
             Generated token IDs which can be decoded using the processor
         """
-        # Ensure required inputs are available
-        if input_ids is None or attention_mask is None:
-            raise ValueError("Either 'inputs' or 'input_ids'/'attention_mask' must be provided")
+        text_inputs_embeds, attention_mask = self.get_prompt_embeddings(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            dna_tokenized=dna_tokenized,
+            batch_idx_map=batch_idx_map
+        )
 
+        text_inputs_embeds = text_inputs_embeds.to(input_ids.device)
+        attention_mask = attention_mask.to(input_ids.device)
+
+        # Generation parameters may need adjustment based on model type
+        # do not set use_cache = True, things break
+        with torch.no_grad():
+            outputs = self.text_model.generate(
+                inputs_embeds=text_inputs_embeds,
+                attention_mask=attention_mask,
+                **generation_kwargs,
+            )
+
+        return outputs
+
+    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs=None):
+    
+        self.text_model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+
+        if gradient_checkpointing_kwargs is None:
+            gradient_checkpointing_kwargs = {"use_reentrant": False}
+        use_reentrant = (
+            gradient_checkpointing_kwargs["use_reentrant"]
+        )
+
+        print("use_reentrant:", use_reentrant)
+
+        if use_reentrant:
+            self.text_model.enable_input_require_grads()
+        
+        print("gradient_checkpointing_enable for model:", self.text_model.is_gradient_checkpointing)
+    
+    def train(self, mode: bool = True):
+        nn.Module.train(self, False)
+        self.text_model.train(mode)
+        self.dna_projection.train(mode)
+
+        if hasattr(self, "lm_head"):
+            self.lm_head.train(mode)
+        self.training = self.text_model.training
+        return self
+
+    def get_prompt_embeddings(
+        self,
+        input_ids: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        dna_tokenized: Optional[Dict[str, torch.Tensor]] = None,
+        batch_idx_map: Optional[List[int]] = None
+    ):
+        """
+        Get prompt embeddings for the model.
+        """
+        if input_ids is None or attention_mask is None:
+            raise ValueError("input_ids and attention_mask must be provided")
+    
         batch_size = input_ids.shape[0]
 
         # Get text embeddings from the model's embedding layer
         text_inputs_embeds = self.text_model.get_input_embeddings()(input_ids)
 
         if dna_tokenized is not None and batch_idx_map:
+            dna_tokenized = {k: v.to(self.device) for k, v in dna_tokenized.items()}
             batch_dna_embeds = self.process_dna_embeddings(dna_tokenized, batch_idx_map, batch_size)
 
             mask = input_ids == self.dna_token_id
@@ -293,14 +396,8 @@ class DNALLMModel(nn.Module):
             # Ensure DNA embeddings have the same dtype as the text embeddings
             dna_embeds_flat = dna_embeds_flat.to(dtype=text_inputs_embeds.dtype)
             text_inputs_embeds[mask] = dna_embeds_flat
+        
+        text_inputs_embeds = text_inputs_embeds.to(input_ids.device)
+        attention_mask = attention_mask.to(input_ids.device)
 
-        # Generation parameters may need adjustment based on model type
-        with torch.no_grad():
-            outputs = self.text_model.generate(
-                inputs_embeds=text_inputs_embeds,
-                attention_mask=attention_mask,
-                use_cache=True,
-                **generation_kwargs,
-            )
-
-        return outputs
+        return text_inputs_embeds, attention_mask

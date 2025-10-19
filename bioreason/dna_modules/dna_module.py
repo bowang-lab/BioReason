@@ -14,9 +14,6 @@ class DNABaseModule(ABC):
     def get_model_class(self, model_id: str, model_init_kwargs: dict):
         pass
 
-    def post_model_init(self, model, processing_class):
-        pass
-
     def is_embeds_input(self):
         return False
     
