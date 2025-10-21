@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Callable, Optional, Union
+from typing import TYPE_CHECKING, Callable, List, Optional, Union
 
 import numpy as np
 
@@ -8,5 +8,5 @@ if is_torch_available():
     import torch
 
 DNAInput = Union[
-    str, list[int], np.ndarray, "torch.Tensor", list[str], list[list[int]], list[np.ndarray], list["torch.Tensor"]
+    str, List[int], np.ndarray, "torch.Tensor", List[str], List[List[int]], List[np.ndarray], List["torch.Tensor"]
 ]  # noqa

@@ -38,7 +38,7 @@ class DNABaseModule(ABC):
         pass
 
     @abstractmethod
-    def prepare_prompt(self, processing_class, inputs: dict[str, Union[torch.Tensor, Any]]):
+    def prepare_prompt(self, processing_class, inputs: Dict[str, Union[torch.Tensor, Any]]):
         pass
     
     @abstractmethod

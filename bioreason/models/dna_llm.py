@@ -162,6 +162,15 @@ class DNALLMModel(nn.Module):
         Returns:
             List of tensor embeddings for each batch item
         """
+        # Get the device of the DNA model
+        dna_device = next(self.dna_model.parameters()).device
+        
+        # Move DNA tokenized inputs to the same device as the DNA model
+        dna_tokenized = {
+            k: v.to(dna_device) if isinstance(v, torch.Tensor) else v
+            for k, v in dna_tokenized.items()
+        }
+        
         # Process all sequences to get DNA representations
         with torch.no_grad():
             # Handle different model types based on dna_is_evo2 attribute
@@ -188,7 +197,11 @@ class DNALLMModel(nn.Module):
                 if hidden_states_list:
                     hidden_states = torch.stack(hidden_states_list)
                 else:
-                    return [torch.zeros((0, self.text_hidden_size)) for _ in range(batch_size)]
+                    # Return empty tensors on the correct device
+                    return [torch.zeros((0, self.text_hidden_size), 
+                                       device=self.dna_projection.weight.device,
+                                       dtype=self.dna_projection.weight.dtype) 
+                           for _ in range(batch_size)]
                     
             else:  # Standard HuggingFace model
                 # Use existing code path for HF models
@@ -219,7 +232,10 @@ class DNALLMModel(nn.Module):
             if result[i]:
                 result[i] = torch.cat(result[i], dim=0)
             else:
-                result[i] = torch.zeros((0, self.text_hidden_size))
+                # Create empty tensor on the same device as the projection layer
+                result[i] = torch.zeros((0, self.text_hidden_size), 
+                                       device=self.dna_projection.weight.device,
+                                       dtype=self.dna_projection.weight.dtype)
 
         return result
 
@@ -269,8 +285,8 @@ class DNALLMModel(nn.Module):
                     f"DNA features and DNA tokens do not match: features {n_dna_features}, tokens: {n_dna_tokens}"
                 )
 
-            # Ensure DNA embeddings have the same dtype as the text embeddings
-            dna_embeds_flat = dna_embeds_flat.to(dtype=text_inputs_embeds.dtype)
+            # Ensure DNA embeddings have the same dtype and device as the text embeddings
+            dna_embeds_flat = dna_embeds_flat.to(dtype=text_inputs_embeds.dtype, device=text_inputs_embeds.device)
             text_inputs_embeds[mask] = dna_embeds_flat
 
         # Handle labels if provided (for training)
@@ -393,8 +409,8 @@ class DNALLMModel(nn.Module):
                     f"DNA features and DNA tokens do not match: features {n_dna_features}, tokens: {n_dna_tokens}"
                 )
 
-            # Ensure DNA embeddings have the same dtype as the text embeddings
-            dna_embeds_flat = dna_embeds_flat.to(dtype=text_inputs_embeds.dtype)
+            # Ensure DNA embeddings have the same dtype and device as the text embeddings
+            dna_embeds_flat = dna_embeds_flat.to(dtype=text_inputs_embeds.dtype, device=text_inputs_embeds.device)
             text_inputs_embeds[mask] = dna_embeds_flat
         
         text_inputs_embeds = text_inputs_embeds.to(input_ids.device)

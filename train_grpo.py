@@ -112,7 +112,7 @@ def extract_xml_answer(text: str) -> str:
     return answer.strip()
 
 # Reward functions
-def correctness_reward_func(prompts, completions, answer, **kwargs) -> list[float]:
+def correctness_reward_func(prompts, completions, answer, **kwargs) -> List[float]:
     responses = [completion[0]['content'] for completion in completions]
     q = prompts[0][-1]['content']
     extracted_responses = [extract_xml_answer(r) for r in responses]
@@ -120,19 +120,19 @@ def correctness_reward_func(prompts, completions, answer, **kwargs) -> list[floa
     print('-'*20, f"Question:\n{q}", f"\nAnswer:\n{answer[0]}", f"\nResponse:\n{responses[0]}", f"\nExtracted:\n{extracted_responses[0]}")
     return [2.0 if a.lower() in r.lower() else 0.0 for r, a in zip(extracted_responses, answer[0])]
 
-def less_than_4_reward_func(completions, **kwargs) -> list[float]:
+def less_than_4_reward_func(completions, **kwargs) -> List[float]:
     responses = [completion[0]['content'] for completion in completions]
     extracted_responses = [extract_xml_answer(r) for r in responses]
     return [0.5 if len(r.split(' ')) <= 4 else 0.0 for r in extracted_responses]
 
-def strict_format_reward_func(completions, **kwargs) -> list[float]:
+def strict_format_reward_func(completions, **kwargs) -> List[float]:
     """Reward function that checks if the completion has a specific format."""
     pattern = r"^<think>\n.*?\n</think>\n.*?\n$"
     responses = [completion[0]["content"] for completion in completions]
     matches = [re.match(pattern, r) for r in responses]
     return [0.5 if match else 0.0 for match in matches]
 
-def soft_format_reward_func(completions, **kwargs) -> list[float]:
+def soft_format_reward_func(completions, **kwargs) -> List[float]:
     """Reward function that checks if the completion has a specific format."""
     pattern = r"<think>.*?</think>\s*.*?"
     responses = [completion[0]["content"] for completion in completions]
@@ -147,7 +147,7 @@ def count_xml(text) -> float:
         count += 0.125
     return count
 
-def xmlcount_reward_func(completions, **kwargs) -> list[float]:
+def xmlcount_reward_func(completions, **kwargs) -> List[float]:
     contents = [completion[0]["content"] for completion in completions]
     return [count_xml(c) for c in contents]
 
@@ -166,7 +166,7 @@ class GRPOModelConfig(ModelConfig):
     lora_r: int = field(default=32, metadata={"help": "LoRA R value."})
     lora_alpha: int = field(default=64, metadata={"help": "LoRA alpha."})
     lora_dropout: float = field(default=0.05, metadata={"help": "LoRA dropout."})
-    lora_modules_to_save: Optional[list[str]] = field(
+    lora_modules_to_save: Optional[List[str]] = field(
         default="embed_tokens",
         metadata={"help": "Model layers to unfreeze & train."},
     )
@@ -193,7 +193,7 @@ class GRPOScriptArguments(ScriptArguments):
         default=0.0,
         metadata={"help": "Ratio of validation split, default 0.0"},
     )
-    reward_funcs: list[str] = field(
+    reward_funcs: List[str] = field(
         #default_factory=lambda: ["accuracy", "format"],
         default_factory=lambda: ["xmlcount", "soft_format", "strict_format", "less_than_4", "correctness"],
         #metadata={"help": "List of reward functions. Possible values: 'accuracy', 'format'"},

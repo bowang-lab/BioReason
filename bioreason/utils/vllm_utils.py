@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 
 import torch
@@ -24,7 +24,7 @@ def should_update_and_canonicalize(name: str) -> Optional[str]:
         name = name[len("text_model."):]
     return name
 
-def fix_param_name_to_vllm(name, extra_prefixes: Optional[list[str]] = None):
+def fix_param_name_to_vllm(name, extra_prefixes: Optional[List[str]] = None):
         extra_prefixes = extra_prefixes or []
         prefixes = ["_checkpoint_wrapped_module."] + extra_prefixes
         for prefix in prefixes:

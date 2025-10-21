@@ -13,9 +13,32 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Any, Dict, List, Optional, Union
+import sys
 
 from transformers import TrainingArguments
+from transformers.utils import is_accelerate_available
+
+# Import ParallelismConfig to resolve forward references in TrainingArguments
+# This is needed because TrainingArguments uses Optional["ParallelismConfig"] which
+# requires ParallelismConfig to be in the namespace when type hints are resolved
+if is_accelerate_available("1.10.1"):
+    try:
+        from accelerate.parallelism_config import ParallelismConfig
+    except ImportError:
+        # Create a dummy class if import fails
+        class ParallelismConfig:
+            pass
+else:
+    # Create a dummy class for older accelerate versions that don't have ParallelismConfig
+    class ParallelismConfig:
+        pass
+
+# Inject ParallelismConfig into the transformers.training_args module namespace
+# This is required for type hint resolution of TrainingArguments' parallelism_config field
+import transformers.training_args
+if not hasattr(transformers.training_args, 'ParallelismConfig'):
+    transformers.training_args.ParallelismConfig = ParallelismConfig
 
 
 @dataclass
@@ -160,7 +183,7 @@ class DNALLMGRPOConfig(TrainingArguments):
     )
 
     # Parameters that control the model and reference model
-    model_init_kwargs: Optional[dict] = field(
+    model_init_kwargs: Optional[Dict[str, Any]] = field(
         default=None,
         metadata={
             "help": "Keyword arguments for `transformers.AutoModelForCausalLM.from_pretrained`, used when the `model` "
@@ -253,7 +276,7 @@ class DNALLMGRPOConfig(TrainingArguments):
             "must be a value between 0.0 and 1.0. Typical values are in the 0.01-0.2 range."
         },
     )
-    generation_kwargs: Optional[dict] = field(
+    generation_kwargs: Optional[Dict[str, Any]] = field(
         default=None,
         metadata={
             "help": "Additional keyword arguments to pass to `GenerationConfig` (if using transformers) or "
@@ -451,7 +474,7 @@ class DNALLMGRPOConfig(TrainingArguments):
             "sequence-level rewards."
         },
     )
-    reward_weights: Optional[list[float]] = field(
+    reward_weights: Optional[List[float]] = field(
         default=None,
         metadata={
             "help": "Weights for each reward function. Must match the number of reward functions. If `None`, all "
@@ -578,7 +601,7 @@ class DNALLMGRPOConfig(TrainingArguments):
     )
 
 
-    report_to: Union[None, str, list[str]] = field(
+    report_to: Union[None, str, List[str]] = field(
         default="wandb", metadata={"help": "The list of integrations to report the results and logs to."}
     )
 
