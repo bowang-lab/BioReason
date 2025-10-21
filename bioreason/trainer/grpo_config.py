@@ -208,6 +208,10 @@ class DNALLMGRPOConfig(TrainingArguments):
             "that requires any column other than 'prompts' and 'completions', you should keep this to `False`."
         },
     )
+    per_device_train_batch_size: int = field(
+        default=2,
+        metadata={"help": "Batch size per GPU/TPU/MPS/NPU core/CPU for training."},
+    )
     max_prompt_length: Optional[int] = field(
         default=512,
         metadata={
@@ -215,7 +219,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     num_generations: Optional[int] = field(
-        default=8,
+        default=2,
         metadata={
             "help": "Number of generations to sample. The global batch size (num_processes * per_device_batch_size) "
             "must be divisible by this value."

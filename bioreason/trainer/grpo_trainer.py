@@ -15,6 +15,7 @@
 import copy
 import inspect
 import os
+import random
 import time
 import textwrap
 import pandas as pd
@@ -736,6 +737,18 @@ class DNALLMGRPOTrainer(Trainer):
         return logps, entropies
 
     # Get the per-token log probabilities for the completions for the model and the reference model
+    def _get_per_token_logps(self, model, input_ids, attention_mask, **custom_multimodal_inputs):
+        """Wrapper to get per-token log probabilities without entropy computation."""
+        logps, _ = self._get_per_token_logps_and_entropies(
+            model, 
+            input_ids, 
+            attention_mask, 
+            logits_to_keep="completion",
+            compute_entropy=False,
+            **custom_multimodal_inputs
+        )
+        return logps
+    
     def _get_per_token_logps_and_entropies(
         self,
         model,
@@ -752,13 +765,39 @@ class DNALLMGRPOTrainer(Trainer):
         all_entropies = []
         for start in range(0, input_ids.size(0), batch_size):
             end = start + batch_size
+            
+            # Handle DNA-specific inputs separately (they're indexed by sequence, not batch)
+            sliced_multimodal_inputs = {}
+            for k, v in custom_multimodal_inputs.items():
+                if k == 'dna_tokenized' and v is not None:
+                    # dna_tokenized is indexed by DNA sequence number, not batch item
+                    # Find which DNA sequences belong to batch items [start:end]
+                    batch_idx_map = custom_multimodal_inputs.get('batch_idx_map', [])
+                    if batch_idx_map:
+                        # Get indices of DNA sequences that belong to this batch slice
+                        dna_seq_indices = [i for i, batch_idx in enumerate(batch_idx_map) if start <= batch_idx < end]
+                        # Slice the DNA tokenized tensors
+                        sliced_multimodal_inputs[k] = {
+                            'input_ids': v['input_ids'][dna_seq_indices] if len(dna_seq_indices) > 0 else v['input_ids'][:0],
+                            'attention_mask': v['attention_mask'][dna_seq_indices] if len(dna_seq_indices) > 0 else v['attention_mask'][:0],
+                        }
+                    else:
+                        sliced_multimodal_inputs[k] = v
+                elif k == 'batch_idx_map' and v is not None:
+                    # Renumber batch_idx_map to start from 0 for this sub-batch
+                    sliced_map = [batch_idx - start for batch_idx in v if start <= batch_idx < end]
+                    sliced_multimodal_inputs[k] = sliced_map
+                else:
+                    # For regular tensors, slice by batch dimension
+                    sliced_multimodal_inputs[k] = v[start:end] if isinstance(v, torch.Tensor) else v
+            
             logps, entropies = self._compute_logps_single_batch(
                 model,
                 input_ids[start:end],
                 attention_mask[start:end],
                 logits_to_keep,
                 compute_entropy,
-                **{k: v[start:end] for k, v in custom_multimodal_inputs.items()}
+                **sliced_multimodal_inputs
             )  # (B, L-1)
             all_logps.append(logps)
             if compute_entropy:
@@ -898,8 +937,48 @@ class DNALLMGRPOTrainer(Trainer):
                 # self._buffered_inputs=None can occur when resuming from a checkpoint
                 generation_batch = self._generate_and_score_completions(generation_batch)
                 generation_batch = split_pixel_values_by_grid(generation_batch)
-                generation_batch = shuffle_sequence_dict(generation_batch)
+                
+                # Handle DNA-specific fields during shuffling
+                dna_tokenized = generation_batch.pop("dna_tokenized", None)
+                batch_idx_map = generation_batch.pop("batch_idx_map", None)
+                multimodal_inputs = generation_batch.pop("multimodal_inputs", None)
+                
+                # Shuffle the main batch and track the permutation
+                batch_size = len(generation_batch["advantages"])
+                permutation = list(range(batch_size))
+                random.shuffle(permutation)
+                
+                # Apply permutation to all batch items
+                for key, val in generation_batch.items():
+                    if isinstance(val, torch.Tensor):
+                        generation_batch[key] = val[permutation]
+                    elif isinstance(val, list):
+                        generation_batch[key] = [val[i] for i in permutation]
+                
+                # Update batch_idx_map to reflect the new batch order
+                if batch_idx_map is not None:
+                    # Create inverse mapping: old_idx -> new_idx
+                    inverse_perm = [0] * batch_size
+                    for new_idx, old_idx in enumerate(permutation):
+                        inverse_perm[old_idx] = new_idx
+                    # Update batch_idx_map: replace each old index with its new position
+                    batch_idx_map = [inverse_perm[idx] for idx in batch_idx_map]
+                    # Update multimodal_inputs with the new batch_idx_map
+                    if multimodal_inputs is not None:
+                        multimodal_inputs["batch_idx_map"] = batch_idx_map
+                
+                # Split the batch (without DNA fields and multimodal_inputs)
                 generation_batches = split_tensor_dict(generation_batch, self.args.steps_per_generation)
+                
+                # Add DNA fields and multimodal_inputs back to each split batch
+                if dna_tokenized is not None or batch_idx_map is not None or multimodal_inputs is not None:
+                    for batch in generation_batches:
+                        if dna_tokenized is not None:
+                            batch["dna_tokenized"] = dna_tokenized
+                        if batch_idx_map is not None:
+                            batch["batch_idx_map"] = batch_idx_map
+                        if multimodal_inputs is not None:
+                            batch["multimodal_inputs"] = multimodal_inputs
                 # CRITICAL: Detach all tensors in buffered inputs to prevent gradient accumulation across steps
                 self._buffered_inputs = []
                 for batch in generation_batches:
@@ -1118,7 +1197,8 @@ class DNALLMGRPOTrainer(Trainer):
         device = self.accelerator.device
 
         prompts_text = inputs["prompt"]
-        original_prompts = copy.deepcopy(prompts_text)
+        # Get structured prompts for reward functions (if available, otherwise fall back to text)
+        original_prompts = inputs.get("original_prompts", prompts_text)
 
         dna_tokenized = inputs.get("dna_tokenized")
         batch_idx_map = inputs.get("batch_idx_map")
@@ -1176,7 +1256,7 @@ class DNALLMGRPOTrainer(Trainer):
                 prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
 
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-        breakpoint()
+        # breakpoint()
 
         # Mask everything after the first EOS token
         is_eos = completion_ids == self.eos_token_id
@@ -1269,7 +1349,8 @@ class DNALLMGRPOTrainer(Trainer):
         # Decode the generated completions
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
         
-        completions = completions_text
+        # Format completions for reward functions (they expect [{"content": "..."}] format)
+        completions = [[{"role": "assistant", "content": completion}] for completion in completions_text]
 
         # Calculate rewards for each reward function. rewards_per_func aggregates rewards across all processes. This is
         # important because rewards will be normalized per group, and completions are distributed. We will later slice
@@ -1397,9 +1478,13 @@ class DNALLMGRPOTrainer(Trainer):
             "prompt_mask": prompt_mask,
             "completion_ids": completion_ids,
             "completion_mask": completion_mask,
-            "dna_tokenized": kwargs.get("dna_tokenized"),
-            "batch_idx_map": kwargs.get("batch_idx_map"),
+            "dna_tokenized": dna_tokenized,
+            "batch_idx_map": batch_idx_map,
             "advantages": advantages,
+            "multimodal_inputs": {
+                "dna_tokenized": dna_tokenized,
+                "batch_idx_map": batch_idx_map,
+            },
         }
         if old_per_token_logps is not None:
             output["old_per_token_logps"] = old_per_token_logps
@@ -1413,17 +1498,9 @@ class DNALLMGRPOTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
-    
-        # Check if we need to generate new completions or use buffered ones
-        print("index 1")
-        if self.state.global_step % self.num_iterations == 0:
-            inputs = self._generate_and_score_completions(inputs, model)
-            self._buffered_inputs[self._step % self.args.gradient_accumulation_steps] = inputs
-        else:
-            inputs = self._buffered_inputs[self._step % self.args.gradient_accumulation_steps]
-        self._step += 1
         
-        print("index 2")
+        # inputs have already been processed by _prepare_inputs
+        # which handles generation, scoring, and buffering
         # Get the prepared inputs
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
@@ -1432,17 +1509,14 @@ class DNALLMGRPOTrainer(Trainer):
         # Concatenate for full sequence
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
-        print("index 3")
-        # Get the current policy's log probabilities
         
-        print("index 4")
+        # Get the current policy's log probabilities
         per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, **multimodal_inputs)
         # Get rid of the prompt (-1 because of the shift done in get_per_token_logps)
         per_token_logps = per_token_logps[:, prompt_ids.size(1) - 1:]
 
         # Get the advantages from inputs
         advantages = inputs["advantages"]
-        print("index 5")
         # When using num_iterations == 1, old_per_token_logps == per_token_logps, so we can skip its computation
         # and use per_token_logps.detach() instead
         old_per_token_logps = inputs["old_per_token_logps"] if self.num_iterations > 1 else per_token_logps.detach()

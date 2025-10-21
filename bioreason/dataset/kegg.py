@@ -247,6 +247,8 @@ def qwen_dna_collate_fn(
     """
 
     dna_module = NucleotideDNAModule()
+    # Keep original structured prompts for reward functions
+    original_prompts = [example["prompt"] for example in examples]
     prompts_text = dna_module.prepare_prompt(processing_class=processor, inputs=examples)
     batch_dna_sequences = [example["dna_sequences"] for example in examples]
 
@@ -394,6 +396,7 @@ def qwen_dna_collate_fn(
         batch["labels"] = new_labels
 
     batch["prompt"] = prompts_text
+    batch["original_prompts"] = original_prompts
 
     return batch
 
