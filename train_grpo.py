@@ -120,10 +120,10 @@ def correctness_reward_func(prompts, completions, answer, **kwargs) -> List[floa
     print('-'*20, f"Question:\n{q}", f"\nAnswer:\n{answer[0]}", f"\nResponse:\n{responses[0]}", f"\nExtracted:\n{extracted_responses[0]}")
     return [2.0 if a.lower() in r.lower() else 0.0 for r, a in zip(extracted_responses, answer[0])]
 
-def less_than_4_reward_func(completions, **kwargs) -> List[float]:
+def concise_reward_func(completions, **kwargs) -> List[float]:
     responses = [completion[0]['content'] for completion in completions]
     extracted_responses = [extract_xml_answer(r) for r in responses]
-    return [0.5 if len(r.split(' ')) <= 4 else 0.0 for r in extracted_responses]
+    return [0.5 if len(r.split(' ')) <= 20 else 0.0 for r in extracted_responses]
 
 def strict_format_reward_func(completions, **kwargs) -> List[float]:
     """Reward function that checks if the completion has a specific format."""
@@ -195,16 +195,16 @@ class GRPOScriptArguments(ScriptArguments):
     )
     reward_funcs: List[str] = field(
         #default_factory=lambda: ["accuracy", "format"],
-        default_factory=lambda: ["xmlcount", "soft_format", "strict_format", "less_than_4", "correctness"],
+        default_factory=lambda: ["xmlcount", "soft_format", "strict_format", "concise", "correctness"],
         #metadata={"help": "List of reward functions. Possible values: 'accuracy', 'format'"},
-        metadata={"help": "List of reward functions. Possible values: 'accuracy', 'xmlcount', 'soft_format', 'strict_format', 'less_than_4', 'correctness', 'depth'"},
+        metadata={"help": "List of reward functions. Possible values: 'accuracy', 'xmlcount', 'soft_format', 'strict_format', 'concise', 'correctness', 'depth'"},
     )
 
 reward_funcs_registry = {
     "xmlcount": xmlcount_reward_func,
     "soft_format": soft_format_reward_func,
     "strict_format": strict_format_reward_func,
-    "less_than_4": less_than_4_reward_func,
+    "concise": concise_reward_func,
     "correctness": correctness_reward_func,
 }
 
