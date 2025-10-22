@@ -868,7 +868,7 @@ class DNALLMGRPOTrainer(Trainer):
                         elif self.vllm_mode == "colocate":
                             name = should_update_and_canonicalize(name)
                             llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
-                            print(f"full_name: {name}, param shape: {param.data.shape}")
+                            # print(f"full_name: {name}, param shape: {param.data.shape}")
                             llm_model.load_weights([(name, param.data)])
                 # Unmerge adapters while parameters are still gathered
                 self.model.text_model.unmerge_adapter()
@@ -902,10 +902,10 @@ class DNALLMGRPOTrainer(Trainer):
                     with gather_if_zero3([param]):
                         if self.vllm_mode == "server" and self.accelerator.is_main_process:
                             self.vllm_client.update_named_param(name, param.data)
-                            print(f"full_name: {name}, param shape: {param.data.shape}")
+                            # print(f"full_name: {name}, param shape: {param.data.shape}")
                         elif self.vllm_mode == "colocate":
                             llm_model = self.llm.llm_engine.model_executor.driver_worker.model_runner.model
-                            print(f"full_name: {name}, param shape: {param.data.shape}")
+                            # print(f"full_name: {name}, param shape: {param.data.shape}")
                             llm_model.load_weights([(name, param.data)])
 
         # Reset cache on vLLM
@@ -1120,7 +1120,7 @@ class DNALLMGRPOTrainer(Trainer):
             all_prompt_mask = prompt_mask
         
 
-        print("decoded prompt_ids:", self.model.text_tokenizer.decode(all_prompt_ids[0], skip_special_tokens=False))
+        # print("decoded prompt_ids:", self.model.text_tokenizer.decode(all_prompt_ids[0], skip_special_tokens=False))
         self.model.text_model.eval()
 
         with torch.inference_mode():
@@ -1134,16 +1134,16 @@ class DNALLMGRPOTrainer(Trainer):
         #trim the parts that attention_mask is 0
         text_embeddings = [emb[attention_mask[i].bool()] for i, emb in enumerate(text_embeddings)]
         self.model.text_model.train()
-        print(f"prompt_embeds shape: {prompt_embeds.shape}")
-        print(f"prompt_embeds type percision: {prompt_embeds.dtype}")
+        # print(f"prompt_embeds shape: {prompt_embeds.shape}")
+        # print(f"prompt_embeds type percision: {prompt_embeds.dtype}")
 
         with profiling_context(self, "vLLM.generate"):
             all_outputs = self.llm.generate([{"prompt_embeds":embed} for embed in text_embeddings], sampling_params=sampling_params, use_tqdm=True)
-            print("sampling_params:", sampling_params)
+            # print("sampling_params:", sampling_params)
             # print("all_outputs:", all_outputs)
 
         completion_ids = [output.token_ids for outputs in all_outputs for output in outputs.outputs]
-        print("decoded completion_ids:", self.model.text_tokenizer.decode(completion_ids[0], skip_special_tokens=False))
+        # print("decoded completion_ids:", self.model.text_tokenizer.decode(completion_ids[0], skip_special_tokens=False))
         all_logprobs = [
             [next(iter(lp.values())).logprob for lp in output.logprobs]
             for outputs in all_outputs

@@ -545,6 +545,8 @@ if __name__ == "__main__":
     print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES')}")
     # Avoid HF datasets multiprocessing issues under multi-rank runs
     os.environ.setdefault("HF_DATASETS_DISABLE_MULTIPROCESSING", "1")
+    # Set wandb project
+    os.environ.setdefault("WANDB_PROJECT", "dna-grpo")
     parser = TrlParser((GRPOScriptArguments, DNALLMGRPOConfig, GRPOModelConfig))
     script_args, training_args, model_args = parser.parse_args_and_config()
     
