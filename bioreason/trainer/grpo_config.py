@@ -209,7 +209,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     per_device_train_batch_size: int = field(
-        default=2,
+        default=4,
         metadata={"help": "Batch size per GPU/TPU/MPS/NPU core/CPU for training."},
     )
     max_prompt_length: Optional[int] = field(
@@ -219,7 +219,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     num_generations: Optional[int] = field(
-        default=2,
+        default=4,
         metadata={
             "help": "Number of generations to sample. The global batch size (num_processes * per_device_batch_size) "
             "must be divisible by this value."
@@ -432,14 +432,14 @@ class DNALLMGRPOConfig(TrainingArguments):
 
     # Parameters that control the training
     learning_rate: float = field(
-        default=1e-6,
+        default=1e-5,
         metadata={
             "help": "Initial learning rate for `AdamW` optimizer. The default value replaces that of "
             "`transformers.TrainingArguments`."
         },
     )
     beta: float = field(
-        default=0.04,
+        default=0.0,
         metadata={
             "help": "KL coefficient. If `0.0`, the reference model is not loaded, reducing memory usage and improving "
             "training speed, but may be numerically unstable for long training runs."
