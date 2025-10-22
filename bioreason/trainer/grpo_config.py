@@ -338,7 +338,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     vllm_gpu_memory_utilization: float = field(
-        default=0.9,
+        default=0.2,
         metadata={
             "help": "Ratio (between 0 and 1) of GPU memory to reserve for the model weights, activations, and KV "
             "cache on the device dedicated to generation powered by vLLM. Higher values will increase the KV cache "

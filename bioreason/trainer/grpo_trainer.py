@@ -737,13 +737,13 @@ class DNALLMGRPOTrainer(Trainer):
         return logps, entropies
 
     # Get the per-token log probabilities for the completions for the model and the reference model
-    def _get_per_token_logps(self, model, input_ids, attention_mask, **custom_multimodal_inputs):
+    def _get_per_token_logps(self, model, input_ids, attention_mask, logits_to_keep, **custom_multimodal_inputs):
         """Wrapper to get per-token log probabilities without entropy computation."""
         logps, _ = self._get_per_token_logps_and_entropies(
             model, 
             input_ids, 
             attention_mask, 
-            logits_to_keep="completion",
+            logits_to_keep=logits_to_keep,
             compute_entropy=False,
             **custom_multimodal_inputs
         )
@@ -1511,9 +1511,9 @@ class DNALLMGRPOTrainer(Trainer):
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
         
         # Get the current policy's log probabilities
-        per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, **multimodal_inputs)
-        # Get rid of the prompt (-1 because of the shift done in get_per_token_logps)
-        per_token_logps = per_token_logps[:, prompt_ids.size(1) - 1:]
+        logits_to_keep = completion_ids.size(1)  # number of completion tokens
+        per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep, **multimodal_inputs)
+        # per_token_logps already only contains completion token logps due to logits_to_keep parameter
 
         # Get the advantages from inputs
         advantages = inputs["advantages"]
@@ -1521,13 +1521,16 @@ class DNALLMGRPOTrainer(Trainer):
         # and use per_token_logps.detach() instead
         old_per_token_logps = inputs["old_per_token_logps"] if self.num_iterations > 1 else per_token_logps.detach()
 
+        # Determine mode for metrics logging
+        mode = "train" if model.training else "eval"
+
         # Compute the policy ratio and clipped version
         coef_1 = torch.exp(per_token_logps - old_per_token_logps)
         coef_2 = torch.clamp(coef_1, 1 - self.epsilon_low, 1 + self.epsilon_high)
         per_token_loss1 = coef_1 * advantages.unsqueeze(1)
         per_token_loss2 = coef_2 * advantages.unsqueeze(1)
         per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
-        print("index 6")
+        
         # Add KL penalty if beta > 0
         if self.beta > 0:
             ref_per_token_logps = inputs["ref_per_token_logps"]
@@ -1536,24 +1539,30 @@ class DNALLMGRPOTrainer(Trainer):
 
             # Log KL divergence
             mean_kl = ((per_token_kl * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
-            self._metrics["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
+            self._metrics[mode]["kl"].append(self.accelerator.gather_for_metrics(mean_kl).mean().item())
 
         # Compute final loss
-        print("Computing final loss...")
         loss = ((per_token_loss * completion_mask).sum(dim=1) / completion_mask.sum(dim=1)).mean()
 
         # Log clip ratio
         is_clipped = (per_token_loss1 < per_token_loss2).float()
         clip_ratio = (is_clipped * completion_mask).sum() / completion_mask.sum()
-        self._metrics["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
+        self._metrics[mode]["clip_ratio"].append(self.accelerator.gather_for_metrics(clip_ratio).mean().item())
 
         return loss
 
     def log(self, logs: Dict[str, float], start_time: Optional[float] = None) -> None:
-        metrics = {key: sum(val) / len(val) for key, val in self._metrics.items()}  # average the metrics
+        # Flatten nested metrics structure {"train": {"metric": [values]}, "eval": {...}}
+        metrics = {}
+        for mode, mode_metrics in self._metrics.items():
+            for key, val in mode_metrics.items():
+                if len(val) > 0:
+                    metrics[f"{mode}/{key}"] = sum(val) / len(val)
         logs = {**logs, **metrics}
         if version.parse(transformers.__version__) >= version.parse("4.47.0.dev0"):
             super().log(logs, start_time)
         else:  # transformers<=4.46
             super().log(logs)
-        self._metrics.clear()
+        # Clear metrics after logging
+        for mode_metrics in self._metrics.values():
+            mode_metrics.clear()
