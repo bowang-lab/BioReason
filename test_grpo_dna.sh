@@ -89,7 +89,7 @@ python -u train_grpo.py \
   --gradient_accumulation_steps 4 \
   --gradient_checkpointing True \
   --max_steps 100 \
-  --max_completion_length 3000 \
+  --max_completion_length 800 \
   --num_generations 4 \
   --per_device_train_batch_size 4 \
   --per_device_eval_batch_size 4 \
