@@ -118,12 +118,12 @@ def correctness_reward_func(prompts, completions, answer, **kwargs) -> List[floa
     extracted_responses = [extract_xml_answer(r) for r in responses]
     # extracted_responses = [r.lower().replace("answer:", "").strip() for r in extracted_responses]
     print('-'*20, f"Question:\n{q}", f"\nAnswer:\n{answer[0]}", f"\nResponse:\n{responses[0]}", f"\nExtracted:\n{extracted_responses[0]}")
-    return [2.0 if a.lower() in r.lower() else 0.0 for r, a in zip(extracted_responses, answer[0])]
+    return [2.0 if a.lower() in r.lower() else 0.0 for r, a in zip(extracted_responses, answer)]
 
 def concise_reward_func(completions, **kwargs) -> List[float]:
     responses = [completion[0]['content'] for completion in completions]
     extracted_responses = [extract_xml_answer(r) for r in responses]
-    return [0.5 if len(r.split(' ')) <= 20 else 0.0 for r in extracted_responses]
+    return [0.5 if len(r.split(' ')) <= 10 else 0.0 for r in extracted_responses]
 
 def strict_format_reward_func(completions, **kwargs) -> List[float]:
     """Reward function that checks if the completion has a specific format."""
@@ -157,9 +157,9 @@ class GRPOModelConfig(ModelConfig):
     
     # "HuggingFaceTB/SmolLM-135M-Instruct"
     # "Qwen/Qwen2.5-0.5B-Instruct"
-    text_model_name: str = field(default="Qwen/Qwen3-0.6B", metadata={"help": "Model checkpoint for weights initialization."})
-    dna_model_name: str = field(default="InstaDeepAI/nucleotide-transformer-v2-100m-multi-species", metadata={"help": "Model checkpoint for weights initialization."})
-    cache_dir: str = field(default=None, metadata={"help": "Path to model cache directory."})
+    text_model_name: str = field(default="Qwen/Qwen3-4B", metadata={"help": "Model checkpoint for weights initialization."})
+    dna_model_name: str = field(default="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species", metadata={"help": "Model checkpoint for weights initialization."})
+    cache_dir: str = field(default="/large_storage/goodarzilab/bioreason/cache_dir", metadata={"help": "Path to model cache directory."})
     max_length_text: int = field(default=800, metadata={"help": "Maximum length of text sequences."})
     max_length_dna: int = field(default=800, metadata={"help": "Maximum length of DNA sequences, in groups of 6 nucleotides."})
     sft_checkpoint: str = field(default=None, metadata={"help": "Path to the checkpoint for SFT."})

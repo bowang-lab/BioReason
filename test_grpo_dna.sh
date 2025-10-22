@@ -11,7 +11,7 @@
 #SBATCH -o %x-%j.out
 #SBATCH -e %x-%j.err
 
-set -euo pipefail
+set -eo pipefail
 
 # ----- user/env -----
 USER="adibvafa"
@@ -19,6 +19,9 @@ ENV_NAME="bio"
 export PATH="/home/$USER/miniconda/envs/$ENV_NAME/bin:$PATH"
 source "/home/$USER/miniconda/etc/profile.d/conda.sh"
 conda activate "$ENV_NAME"
+
+# Re-enable unbound variable check after conda activation
+set -u
 
 : "${SLURM_NTASKS:=2}"
 : "${SLURM_CPUS_PER_TASK:=8}"
@@ -28,7 +31,7 @@ cd "$HOME/BioReason"
 # ----- data & project -----
 export CACHE_DIR="/large_storage/goodarzilab/bioreason/cache_dir"
 export SFT_CHECKPOINT="/large_storage/goodarzilab/bioreason/checkpoints/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-20250511-190543/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-epoch=03-val_loss_epoch=0.3599.ckpt/output_dir"
-export WANDB_PROJECT="GRPO-DNA-LLM-test"
+export WANDB_PROJECT="dna-grpo"
 
 # ----- runtime (single node) -----
 export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
@@ -85,10 +88,10 @@ python -u train_grpo.py \
   --sft_checkpoint "$SFT_CHECKPOINT" \
   --peft_ckpt False \
   --deepspeed grpo_trainer_lora_model/ds_config_stage2.json \
-  --lora_r 16 --lora_alpha 32 --lora_dropout 0.05 \
+  --lora_r 16 --lora_alpha 32 --lora_dropout 0 \
   --gradient_accumulation_steps 4 \
   --gradient_checkpointing True \
-  --max_steps 100 \
+  --max_steps 1000 \
   --max_completion_length 800 \
   --num_generations 8 \
   --per_device_train_batch_size 8 \
@@ -97,7 +100,7 @@ python -u train_grpo.py \
   --run_name dna-llm-grpo-test \
   --learning_rate 1e-5 \
   --logging_steps 1 \
-  --temperature 1 \
+  --temperature 0.7 \
   --top_p 0.95 \
   --top_k 20 \
   --output_dir /large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo \
@@ -107,7 +110,7 @@ python -u train_grpo.py \
   --use_vllm True \
   --vllm_mode colocate \
   --vllm_tensor_parallel_size 1 \
-  --vllm_gpu_memory_utilization 0.2 \
+  --vllm_gpu_memory_utilization 0.3 \
   --vllm_max_model_len 3000 \
   --vllm_ckpt "$SFT_CHECKPOINT" \
   --bf16 True

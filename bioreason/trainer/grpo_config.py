@@ -174,7 +174,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     bf16: Optional[bool] = field(
-        default=None,
+        default=True,
         metadata={
             "help": "Whether to use bf16 (mixed) precision instead of 32-bit. Requires Ampere or higher NVIDIA "
             "architecture or Intel XPU or using CPU (use_cpu) or Ascend NPU. If not set, it defaults to `True` if "
@@ -198,6 +198,20 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
 
+    # Core training parameters
+    output_dir: str = field(
+        default="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo",
+        metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
+    )
+    run_name: str = field(
+        default="dna-llm-grpo-test",
+        metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."},
+    )
+    deepspeed: Optional[str] = field(
+        default="grpo_trainer_lora_model/ds_config_stage2.json",
+        metadata={"help": "Path to DeepSpeed configuration file."},
+    )
+    
     # Parameters that control the data preprocessing
     # The default value remove_unused_columns is overwritten from the parent class, because in GRPO we usually rely on
     # additional columns to compute the reward
@@ -211,6 +225,38 @@ class DNALLMGRPOConfig(TrainingArguments):
     per_device_train_batch_size: int = field(
         default=8,
         metadata={"help": "Batch size per GPU/TPU/MPS/NPU core/CPU for training."},
+    )
+    per_device_eval_batch_size: int = field(
+        default=8,
+        metadata={"help": "Batch size per GPU/TPU/MPS/NPU core/CPU for evaluation."},
+    )
+    gradient_accumulation_steps: int = field(
+        default=4,
+        metadata={"help": "Number of updates steps to accumulate before performing a backward/update pass."},
+    )
+    max_steps: int = field(
+        default=100,
+        metadata={"help": "If set to a positive number, the total number of training steps to perform. Overrides num_train_epochs."},
+    )
+    save_strategy: str = field(
+        default="steps",
+        metadata={"help": "The checkpoint save strategy to use (no, steps, epoch)."},
+    )
+    save_steps: int = field(
+        default=50,
+        metadata={"help": "Save checkpoint every X update steps."},
+    )
+    save_total_limit: int = field(
+        default=2,
+        metadata={"help": "Limit the total amount of checkpoints. Deletes the older checkpoints."},
+    )
+    warmup_ratio: float = field(
+        default=0.03,
+        metadata={"help": "Ratio of total training steps used for a linear warmup from 0 to learning_rate."},
+    )
+    lr_scheduler_type: str = field(
+        default="cosine",
+        metadata={"help": "The scheduler type to use. See transformers.SchedulerType for all possible values."},
     )
     max_prompt_length: Optional[int] = field(
         default=512,
@@ -256,7 +302,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         metadata={"help": "Number of steps per generation. If `None`, it defaults to `gradient_accumulation_steps`."},
     )
     temperature: float = field(
-        default=0.6,
+        default=0.7,
         metadata={"help": "Temperature for sampling. The higher the temperature, the more random the completions."},
     )
     top_p: float = field(
@@ -312,7 +358,7 @@ class DNALLMGRPOConfig(TrainingArguments):
 
     # Parameters that control generation acceleration powered by vLLM
     use_vllm: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={
             "help": "Whether to use vLLM for generating completions. If set to `True`, ensure that a GPU is kept "
             "unused for training, as vLLM will require one for generation. vLLM must be installed "
@@ -320,7 +366,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     vllm_mode: str = field(
-        default="server",
+        default="colocate",
         metadata={
             "help": "Mode to use for vLLM integration when `use_vllm` is set to `True`. Must be one of `'server'` or "
             "`'colocate'`. `'server'`: The trainer will send generation requests to a separate vLLM server. Make sure "
@@ -354,7 +400,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     vllm_max_model_len: Optional[int] = field(
-        default=None,
+        default=3000,
         metadata={
             "help": "If set, the `max_model_len` to use for vLLM. This could be useful when running with reduced "
             "`vllm_gpu_memory_utilization`, leading to a reduced KV cache size. If not set, vLLM will use the model "
@@ -414,7 +460,7 @@ class DNALLMGRPOConfig(TrainingArguments):
 
      # Parameters that control colocated vLLM execution (only used when `vllm_mode` is `"colocate"`)
     vllm_gpu_memory_utilization: float = field(
-        default=0.2,
+        default=0.3,
         metadata={
             "help": "Control the GPU memory utilization for vLLM. This setting only applies when `vllm_mode` is set "
             "to `'colocate'`. If you are using `vllm_mode='server'`, this parameter must be passed separately when "
@@ -611,7 +657,7 @@ class DNALLMGRPOConfig(TrainingArguments):
 
     logging_first_step: bool = field(default=False, metadata={"help": "Log the first global_step"})
     logging_steps: float = field(
-        default=2,
+        default=1,
         metadata={
             "help": (
                 "Log every X updates steps. Should be an integer or a float in range `[0,1)`. "
