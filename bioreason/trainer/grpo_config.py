@@ -235,7 +235,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         metadata={"help": "Number of updates steps to accumulate before performing a backward/update pass."},
     )
     max_steps: int = field(
-        default=100,
+        default=1000,
         metadata={"help": "If set to a positive number, the total number of training steps to perform. Overrides num_train_epochs."},
     )
     save_strategy: str = field(
@@ -243,12 +243,20 @@ class DNALLMGRPOConfig(TrainingArguments):
         metadata={"help": "The checkpoint save strategy to use (no, steps, epoch)."},
     )
     save_steps: int = field(
-        default=50,
+        default=100,
         metadata={"help": "Save checkpoint every X update steps."},
     )
     save_total_limit: int = field(
         default=2,
         metadata={"help": "Limit the total amount of checkpoints. Deletes the older checkpoints."},
+    )
+    eval_strategy: str = field(
+        default="no",
+        metadata={"help": "The evaluation strategy to use (no, steps, epoch). Note: GRPO evaluation is not fully supported yet."},
+    )
+    eval_steps: int = field(
+        default=100,
+        metadata={"help": "Run evaluation every X update steps. Only used if eval_strategy != 'no'."},
     )
     warmup_ratio: float = field(
         default=0.03,

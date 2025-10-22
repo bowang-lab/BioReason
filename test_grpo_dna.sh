@@ -104,7 +104,7 @@ python -u train_grpo.py \
   --top_p 0.95 \
   --top_k 20 \
   --output_dir /large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo \
-  --save_strategy steps --save_steps 50 --save_total_limit 2 \
+  --save_strategy steps --save_steps 100 --save_total_limit 2 \
   --lr_scheduler_type cosine --warmup_ratio 0.03 \
   --log_completions True \
   --use_vllm True \
