@@ -163,9 +163,9 @@ class GRPOModelConfig(ModelConfig):
     max_length_text: int = field(default=800, metadata={"help": "Maximum length of text sequences."})
     max_length_dna: int = field(default=800, metadata={"help": "Maximum length of DNA sequences, in groups of 6 nucleotides."})
     sft_checkpoint: str = field(default=None, metadata={"help": "Path to the checkpoint for SFT."})
-    lora_r: int = field(default=32, metadata={"help": "LoRA R value."})
-    lora_alpha: int = field(default=64, metadata={"help": "LoRA alpha."})
-    lora_dropout: float = field(default=0.05, metadata={"help": "LoRA dropout."})
+    lora_r: int = field(default=16, metadata={"help": "LoRA R value."})
+    lora_alpha: int = field(default=32, metadata={"help": "LoRA alpha."})
+    lora_dropout: float = field(default=0, metadata={"help": "LoRA dropout."})
     lora_modules_to_save: Optional[List[str]] = field(
         default="embed_tokens",
         metadata={"help": "Model layers to unfreeze & train."},

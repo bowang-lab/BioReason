@@ -14,8 +14,8 @@
 set -euo pipefail
 
 # ----- user/env -----
-USER="parsaidp"
-ENV_NAME="flashenv"
+USER="adibvafa"
+ENV_NAME="bio"
 export PATH="/home/$USER/miniconda/envs/$ENV_NAME/bin:$PATH"
 source "/home/$USER/miniconda/etc/profile.d/conda.sh"
 conda activate "$ENV_NAME"
@@ -90,25 +90,25 @@ python -u train_grpo.py \
   --gradient_checkpointing True \
   --max_steps 100 \
   --max_completion_length 800 \
-  --num_generations 4 \
-  --per_device_train_batch_size 4 \
-  --per_device_eval_batch_size 4 \
+  --num_generations 8 \
+  --per_device_train_batch_size 8 \
+  --per_device_eval_batch_size 8 \
   --beta 0.0 \
   --run_name dna-llm-grpo-test \
   --learning_rate 1e-5 \
   --logging_steps 1 \
-  --temperature 0.6 \
+  --temperature 1 \
   --top_p 0.95 \
   --top_k 20 \
-  --output_dir /large_storage/goodarzilab/parsaidp/dna-llm-grpo-test/ \
+  --output_dir /large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo \
   --save_strategy steps --save_steps 50 --save_total_limit 2 \
   --lr_scheduler_type cosine --warmup_ratio 0.03 \
   --log_completions True \
   --use_vllm True \
   --vllm_mode colocate \
   --vllm_tensor_parallel_size 1 \
-  --vllm_gpu_memory_utilization 0.52\
-  --vllm_max_model_len 2048 \
+  --vllm_gpu_memory_utilization 0.2 \
+  --vllm_max_model_len 3000 \
   --vllm_ckpt "$SFT_CHECKPOINT" \
   --bf16 True
 SRUN_PAYLOAD

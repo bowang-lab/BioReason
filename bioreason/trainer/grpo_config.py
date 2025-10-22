@@ -209,7 +209,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     per_device_train_batch_size: int = field(
-        default=4,
+        default=8,
         metadata={"help": "Batch size per GPU/TPU/MPS/NPU core/CPU for training."},
     )
     max_prompt_length: Optional[int] = field(
@@ -219,7 +219,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     num_generations: Optional[int] = field(
-        default=4,
+        default=8,
         metadata={
             "help": "Number of generations to sample. The global batch size (num_processes * per_device_batch_size) "
             "must be divisible by this value."
@@ -498,7 +498,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     loss_type: str = field(
-        default="dapo",
+        default="dr_grpo",
         metadata={
             "help": "Specifies the loss formulation to use. Supported values are 'grpo', 'dapo', 'bnpo', and "
             "'dr_grpo'. "
