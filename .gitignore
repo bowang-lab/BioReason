@@ -179,3 +179,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+
+.out
+.err
+test_grpo_minimal.sh

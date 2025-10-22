@@ -1,0 +1,3 @@
+srun: error: GPU724A: task 0: Exited with exit code 1
+srun: Job step aborted: Waiting up to 12 seconds for job step to finish.
+[2025-10-21T22:20:42.213] error: *** JOB 1216329 ON GPU724A CANCELLED AT 2025-10-21T22:20:42 DUE to SIGNAL Terminated ***

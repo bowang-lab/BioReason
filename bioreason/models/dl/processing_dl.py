@@ -127,6 +127,7 @@ class DLProcessor(ProcessorMixin):
             max_length=max_length,
             return_tensors=return_tensors,
             return_attention_mask=True,
+            add_special_tokens=False,
         )
             
         return {"dna_tokenized": dna_tokenized, "batch_idx_map": batch_idx_map}
@@ -185,7 +186,8 @@ class DLProcessor(ProcessorMixin):
             index = 0
             for i in range(len(text)):
                 while self.dna_token in text[i]:
-                    num_dna_tokens = (dna_processing_result['dna_tokenized']['input_ids'][index] != 1).sum().item()
+                    # Use attention_mask to count valid tokens (consistent with model forward pass)
+                    num_dna_tokens = dna_processing_result['dna_tokenized']['attention_mask'][index].sum().item()
                     text[i] = text[i].replace(
                         self.dna_token, "<|placeholder|>" * num_dna_tokens, 1
                     )

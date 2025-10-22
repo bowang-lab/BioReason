@@ -1,0 +1,2 @@
+srun: Job step aborted: Waiting up to 12 seconds for job step to finish.
+[2025-10-21T22:42:32.661] error: *** JOB 1216357 ON GPU724A CANCELLED AT 2025-10-21T22:42:32 DUE to SIGNAL Terminated ***
