@@ -97,13 +97,13 @@ python -u train_grpo.py \
   --per_device_train_batch_size 8 \
   --per_device_eval_batch_size 8 \
   --beta 0.0 \
-  --run_name dna-llm-grpo-test \
+  --run_name dna-llm-grpo \
   --learning_rate 1e-5 \
   --logging_steps 1 \
   --temperature 0.7 \
   --top_p 0.95 \
   --top_k 20 \
-  --output_dir /large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo \
+  --output_dir /large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo2 \
   --save_strategy steps --save_steps 100 --save_total_limit 2 \
   --lr_scheduler_type cosine --warmup_ratio 0.03 \
   --log_completions True \
