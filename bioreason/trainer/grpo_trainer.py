@@ -371,9 +371,9 @@ class DNALLMGRPOTrainer(Trainer):
         self.generation_config = GenerationConfig(
             max_new_tokens=self.max_completion_length,
             do_sample=True,  
-            temperature=0.6,
-            top_p=0.95,
-            top_k=20,
+            temperature=self.temperature,
+            top_p=self.top_p,
+            top_k=self.top_k,
             pad_token_id=self.pad_token_id,
         )
         if hasattr(self.dna_module, "get_eos_token_id"): # For InternVL

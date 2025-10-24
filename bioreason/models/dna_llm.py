@@ -163,7 +163,11 @@ class DNALLMModel(nn.Module):
             List of tensor embeddings for each batch item
         """
         # Get the device of the DNA model
-        dna_device = next(self.dna_model.parameters()).device
+        # Handle Evo2 wrapper vs HuggingFace models
+        if self.dna_is_evo2:
+            dna_device = next(self.dna_model.model.parameters()).device
+        else:
+            dna_device = next(self.dna_model.parameters()).device
         
         # Move DNA tokenized inputs to the same device as the DNA model
         dna_tokenized = {
@@ -279,8 +283,12 @@ class DNALLMModel(nn.Module):
             n_dna_tokens = mask.sum().item()
             dna_embeds_flat = torch.cat(batch_dna_embeds, dim=0)
             n_dna_features = dna_embeds_flat.shape[0]
-
+            
             if n_dna_features != n_dna_tokens:
+                # TODO: Fix this
+                # raise ValueError(
+                #     f"DNA features and DNA tokens do not match: features {n_dna_features}, tokens: {n_dna_tokens}"
+                # )
                 # Detailed error message for debugging
                 print(f"DEBUG: Batch size: {batch_size}")
                 print(f"DEBUG: batch_idx_map: {batch_idx_map}")

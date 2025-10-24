@@ -8,28 +8,29 @@
 # =============================================================================
 
 # Input checkpoint path (GRPO checkpoint)
-CHECKPOINT_PATH="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo/checkpoint-700"
+CHECKPOINT_PATH="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo-4b-evo2/checkpoint-1000"
 
 # Output directory for HuggingFace format
-SAVE_DIR="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo/checkpoint-700-hf"
+SAVE_DIR="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo-4b-evo2/checkpoint-1000-hf"
 
 # Model configuration (same as training)
 TEXT_MODEL_NAME="Qwen/Qwen3-4B"
-DNA_MODEL_NAME="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species"
+# DNA_MODEL_NAME="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species"
+DNA_MODEL_NAME="evo2_1b_base"
 
 # Path configuration
 CACHE_DIR="/large_storage/goodarzilab/bioreason/cache_dir"
 
 # Training hyperparameters (matching GRPO training from test_grpo_dna.sh)
-MAX_LENGTH_TEXT=512
+MAX_LENGTH_TEXT=2048
 MAX_LENGTH_DNA=2048
 LORA_RANK=16        # GRPO used lora_r=16
 LORA_ALPHA=32       # GRPO used lora_alpha=32
 LORA_DROPOUT=0.0    # GRPO used lora_dropout=0
 
 # DNA-specific settings (same as SFT)
-DNA_IS_EVO2=False
-DNA_EMBEDDING_LAYER=""  # Only needed for Evo2
+DNA_IS_EVO2=True    # False
+DNA_EMBEDDING_LAYER="blocks.20.mlp.l3"  # Only needed for Evo2
 DNA_MODEL_FINETUNE=False
 
 # =============================================================================

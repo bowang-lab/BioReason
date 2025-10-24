@@ -19,6 +19,7 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from bioreason.models.dna_vllm import DNALLMModel
 from bioreason.models.dl.processing_dl import DLProcessor
+from bioreason.dataset.utils import truncate_dna
 from trl.data_utils import maybe_apply_chat_template
 from datasets import load_dataset, concatenate_datasets
 
@@ -43,10 +44,13 @@ def format_kegg_for_dna_llm(example: Dict[str, Any]) -> Dict[str, Any]:
         "answer": example["answer"],
     }
 
-def load_kegg_test_dataset() -> List[Dict[str, Any]]:
+def load_kegg_test_dataset(truncate_dna_per_side: int = 1024) -> List[Dict[str, Any]]:
     """
     Load the KEGG test dataset from HuggingFace.
     
+    Args:
+        truncate_dna_per_side: Number of base pairs to truncate from each end of the DNA sequence
+
     Returns:
         List of test examples formatted for DNA-LLM evaluation
     """
@@ -54,32 +58,37 @@ def load_kegg_test_dataset() -> List[Dict[str, Any]]:
     
     # Load the dataset
     dataset = load_dataset('wanglab/kegg', 'default')
-    test_data = dataset['test']
+    test_dataset = dataset['test']
+    val_dataset = dataset['val']
+    test_val_dataset = concatenate_datasets([test_dataset, val_dataset])
+    print(f"Loaded {len(test_val_dataset)} test examples")
 
-    # add in the val data as well to the mix
-    val_data = dataset['val']
-    
-    test_data = concatenate_datasets([test_data, val_data])
-    
-    print(f"Loaded {len(test_data)} test examples")
+    # Truncate
+    if truncate_dna_per_side > 0:
+        test_val_dataset = test_val_dataset.map(
+            truncate_dna, fn_kwargs={"truncate_dna_per_side": truncate_dna_per_side}
+        )
     
     # Format examples for DNA-LLM
-    formatted_examples = []
-    for example in test_data:
+    formatted_test_val_examples = []
+    for example in test_val_dataset:
         formatted_example = format_kegg_for_dna_llm(example)
-        formatted_examples.append(formatted_example)
+        formatted_test_val_examples.append(formatted_example)
     
-    print(f"Formatted {len(formatted_examples)} examples for DNA-LLM evaluation")
-    return formatted_examples
-
+    print(f"Formatted {len(formatted_test_val_examples)} examples for DNA-LLM evaluation")
+    return formatted_test_val_examples
 
 def initialize_model(
     ckpt_dir: str,
     text_model_name: str = "Qwen/Qwen3-4B",
     dna_model_name: str = "InstaDeepAI/nucleotide-transformer-v2-500m-multi-species",
     cache_dir: str = "/large_storage/goodarzilab/bioreason/cache_dir",
+    max_length_dna: int = 1024,
+    max_length_text: int = 512,
     gpu_memory_utilization: float = 0.4,
     max_model_len: int = 8192,
+    dna_is_evo2: bool = False,
+    dna_embedding_layer: str = None,
 ) -> DNALLMModel:
     """
     Initialize the DNA-vLLM model for evaluation.
@@ -89,8 +98,12 @@ def initialize_model(
         text_model_name: Name of the text model
         dna_model_name: Name of the DNA model
         cache_dir: Cache directory for models
+        max_length_dna: Maximum length of the DNA sequence
+        max_length_text: Maximum length of the text sequence
         gpu_memory_utilization: GPU memory utilization for vLLM
         max_model_len: Maximum model length
+        dna_is_evo2: Whether the DNA model is Evo2
+        dna_embedding_layer: Name of the layer to use for the Evo2 model
         
     Returns:
         Initialized DNA-vLLM model
@@ -107,12 +120,12 @@ def initialize_model(
         text_model_name=text_model_name,
         dna_model_name=dna_model_name,
         cache_dir=cache_dir,
-        max_length_dna=2048,
-        max_length_text=512,
+        max_length_dna=max_length_dna,
+        max_length_text=max_length_text,
         text_model_finetune=False,
         dna_model_finetune=False,
-        dna_is_evo2=False,
-        dna_embedding_layer=None,
+        dna_is_evo2=dna_is_evo2,
+        dna_embedding_layer=dna_embedding_layer,
         gpu_memory_utilization=gpu_memory_utilization,
         max_model_len=max_model_len,
     )
@@ -369,6 +382,18 @@ def main():
         help="Directory to save evaluation results"
     )
     parser.add_argument(
+        "--max_length_dna",
+        type=int,
+        default=1024,
+        help="Maximum length of the DNA sequence"
+    )
+    parser.add_argument(
+        "--max_length_text",
+        type=int,
+        default=1024,
+        help="Maximum length of the text sequence"
+    )
+    parser.add_argument(
         "--batch_size",
         type=int,
         default=1,
@@ -383,7 +408,7 @@ def main():
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.6,
+        default=0,
         help="Temperature for generation"
     )
     parser.add_argument(
@@ -401,10 +426,27 @@ def main():
     parser.add_argument(
         "--gpu_memory_utilization",
         type=float,
-        default=0.4,
+        default=0.3,
         help="GPU memory utilization for vLLM"
     )
-    
+    parser.add_argument(
+        "--dna_is_evo2",
+        type=bool,
+        default=False,
+        help="Whether the DNA model is Evo2"
+    )
+    parser.add_argument(
+        "--dna_embedding_layer",
+        type=str,
+        default=None,
+        help="Name of the layer to use for the Evo2 model"
+    )
+    parser.add_argument(
+        "--truncate_dna_per_side",
+        type=int,
+        default=0,
+        help="Number of base pairs to truncate from each end of the DNA sequence"
+    )
     args = parser.parse_args()
     
     print("="*80)
@@ -419,7 +461,7 @@ def main():
     
     try:
         # Load test dataset
-        test_examples = load_kegg_test_dataset()
+        test_examples = load_kegg_test_dataset(truncate_dna_per_side=args.truncate_dna_per_side)
         
         # Limit examples if specified
         if args.max_examples:
@@ -432,7 +474,11 @@ def main():
             text_model_name=args.text_model_name,
             dna_model_name=args.dna_model_name,
             cache_dir=args.cache_dir,
-            gpu_memory_utilization=args.gpu_memory_utilization
+            max_length_dna=args.max_length_dna,
+            max_length_text=args.max_length_text,
+            gpu_memory_utilization=args.gpu_memory_utilization,
+            dna_is_evo2=args.dna_is_evo2,
+            dna_embedding_layer=args.dna_embedding_layer,
         )
         
         # Initialize processor

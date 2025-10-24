@@ -8,28 +8,29 @@
 # =============================================================================
 
 # Input checkpoint path (DeepSpeed format)
-CHECKPOINT_PATH="/large_storage/goodarzilab/bioreason/checkpoints/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-20250511-190543/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-epoch=03-val_loss_epoch=0.3599.ckpt"
+CHECKPOINT_PATH="/large_storage/goodarzilab/bioreason/checkpoints/evo2-1b-qwen3-4b-kegg-Qwen3-4B-20250514-155113/last.ckpt"
 
 # Output directory for HuggingFace format
-SAVE_DIR="/large_storage/goodarzilab/bioreason/checkpoints/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-20250511-190543/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-epoch=03-val_loss_epoch=0.3599.ckpt/output_dir"
+SAVE_DIR="/large_storage/goodarzilab/bioreason/checkpoints/evo2-1b-qwen3-4b-kegg-Qwen3-4B-20250514-155113/last.ckpt/output_dir"
 
 # Model configuration
 TEXT_MODEL_NAME="Qwen/Qwen3-4B"
-DNA_MODEL_NAME="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species"
+# DNA_MODEL_NAME="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species"
+DNA_MODEL_NAME="evo2_1b_base"
 
 # Path configuration - adjust based on your setup
 CACHE_DIR="/large_storage/goodarzilab/bioreason/cache_dir"
 
 # Training hyperparameters (should match your training config from sh_train_dna_qwen.sh)
-MAX_LENGTH_TEXT=512
+MAX_LENGTH_TEXT=2048
 MAX_LENGTH_DNA=2048
 LORA_RANK=32
 LORA_ALPHA=64
 LORA_DROPOUT=0.05
 
 # DNA-specific settings
-DNA_IS_EVO2=False
-DNA_EMBEDDING_LAYER=""  # Only needed for Evo2
+DNA_IS_EVO2=True    # False
+DNA_EMBEDDING_LAYER="blocks.20.mlp.l3"  # Only needed for Evo2
 DNA_MODEL_FINETUNE=False
 
 # =============================================================================

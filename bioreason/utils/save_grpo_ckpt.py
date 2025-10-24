@@ -245,7 +245,7 @@ def save_grpo_ckpt(args):
             print(f"🗑️  Removing existing model directory: {args.save_dir}")
             shutil.rmtree(args.save_dir)
         elif not is_unsafe:
-            print(f"⚠️  Directory exists but doesn't look like a model directory. Will create alongside existing files.")
+            print("⚠️  Directory exists but doesn't look like a model directory. Will create alongside existing files.")
         else:
             print(f"🚫 Refusing to remove directory that may contain important files: {args.save_dir}")
             print("Please specify a different save directory or manually remove the existing one.")
@@ -264,17 +264,9 @@ def save_grpo_ckpt(args):
     torch.save(model.dna_projection.state_dict(), dna_projection_path)
     print(f"✅ DNA projection saved to {dna_projection_path}")
     
-    # Save DNA model
-    dna_model_path = os.path.join(args.save_dir, "dna_model")
-    os.makedirs(dna_model_path, exist_ok=True)
-    if hasattr(model.dna_model, "save_pretrained"):
-        model.dna_model.save_pretrained(dna_model_path)
-    else:
-        torch.save(model.dna_model.state_dict(), os.path.join(dna_model_path, "pytorch_model.bin"))
-    print(f"✅ DNA model saved to {dna_model_path}")
-    
     print("✅ Complete merged model saved successfully!")
     print(f"📁 Model saved to: {args.save_dir}")
+    print("ℹ️  Note: DNA model not saved (frozen weights, load from original checkpoint)")
     
     # Save missing and unexpected keys log
     with open(os.path.join(args.save_dir, "missing_and_unexpected_keys.txt"), "w") as f:
@@ -289,7 +281,11 @@ def save_grpo_ckpt(args):
     # Report parameter counts
     total_params = sum(p.numel() for p in model.parameters())
     text_params = sum(p.numel() for p in model.text_model.parameters())
-    dna_params = sum(p.numel() for p in model.dna_model.parameters())
+    # Handle Evo2 wrapper for parameter counting
+    if model.dna_is_evo2:
+        dna_params = sum(p.numel() for p in model.dna_model.model.parameters())
+    else:
+        dna_params = sum(p.numel() for p in model.dna_model.parameters())
     print(f"✅ Saved model with {total_params/1e6:.1f}M parameters (text {text_params/1e6:.1f}M • DNA {dna_params/1e6:.1f}M)")
     
     model.eval()
