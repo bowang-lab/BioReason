@@ -11,7 +11,7 @@
 
 <br>
 
-## Updates [Jun 10, 2025]
+## Updates [October 27, 2025]
 - We are integrating vLLM to improve the speed and efficiency of the GRPO pipeline. We expect this to be pushed by end of week.
 - Checkpoints along with the custom DNA-LLM model class will be released on HuggingFace by end of week.
 - More training results with GRPO will be shared soon.
