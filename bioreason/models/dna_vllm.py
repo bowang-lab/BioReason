@@ -147,6 +147,7 @@ class DNALLMModel(nn.Module):
             self.dna_model = Evo2(dna_model_name)
             self.dna_tokenizer = Evo2Tokenizer(self.dna_model.tokenizer)
             self.dna_hidden_size = self.dna_model.model.config.hidden_size
+            self.dna_model.model = self.dna_model.model.to(self.device, dtype=self.dtype)
         else:
             if dna_model_name is None:
                 raise ValueError("dna_model_name must be provided for HF DNA encoders")
@@ -155,8 +156,8 @@ class DNALLMModel(nn.Module):
             )
             self.dna_tokenizer = AutoTokenizer.from_pretrained(dna_model_name, trust_remote_code=True)
             self.dna_hidden_size = self.dna_model.config.hidden_size
+            self.dna_model = self.dna_model.to(self.device, dtype=self.dtype)
 
-        self.dna_model = self.dna_model.to(self.device, dtype=self.dtype)
         self.text_hidden_size = self.text_config.hidden_size
 
         # Create projection layer to map DNA embeddings to text model's embedding space
@@ -180,9 +181,16 @@ class DNALLMModel(nn.Module):
         Note: Text model parameter freezing is skipped since vLLM handles it.
         """
         # DNA encoder
-        self.dna_model.eval()
-        for p in self.dna_model.parameters():
-            p.requires_grad = False
+        if self.dna_is_evo2:
+            # For Evo2, access the internal model
+            self.dna_model.model.eval()
+            for p in self.dna_model.model.parameters():
+                p.requires_grad = False
+        else:
+            # For HF models, access directly
+            self.dna_model.eval()
+            for p in self.dna_model.parameters():
+                p.requires_grad = False
 
         # DNA projection
         self.dna_projection.eval()

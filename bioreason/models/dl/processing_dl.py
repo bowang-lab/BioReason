@@ -187,6 +187,8 @@ class DLProcessor(ProcessorMixin):
             for i in range(len(text)):
                 while self.dna_token in text[i]:
                     # Use attention_mask to count valid tokens (consistent with model forward pass)
+                    # TODO: Fix this
+                    # num_dna_tokens = (dna_processing_result['dna_tokenized']['input_ids'][index] != 1).sum().item()
                     num_dna_tokens = dna_processing_result['dna_tokenized']['attention_mask'][index].sum().item()
                     text[i] = text[i].replace(
                         self.dna_token, "<|placeholder|>" * num_dna_tokens, 1

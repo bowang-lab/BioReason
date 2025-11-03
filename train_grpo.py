@@ -40,6 +40,7 @@ from trl import ModelConfig, ScriptArguments, TrlParser
 from bioreason.models.dna_llm import DNALLMModel, _get_target_modules
 from bioreason.dna_modules import NucleotideDNAModule
 from bioreason.models.dl.processing_dl import DLProcessor
+from bioreason.dataset.utils import truncate_dna
 from bioreason.trainer import DNALLMGRPOTrainer, DNALLMGRPOConfig
 # from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
 # register_evo2_tokenizer()
@@ -86,9 +87,13 @@ class SaveWithPyTorchCallback(TrainerCallback):
         control.should_save = False
         return control
 
-def get_kegg_questions() -> Dataset:
+def get_kegg_questions(truncate_dna_per_side: int = 0) -> Dataset:
     data = load_dataset('wanglab/kegg', 'default') # type: ignore
     num_dna_sequences = 2
+
+    # Apply truncation if specified
+    if truncate_dna_per_side > 0:
+        data = data.map(truncate_dna, fn_kwargs={"truncate_dna_per_side": truncate_dna_per_side})
 
     data = data.map(lambda x: { # type: ignore
         'prompt': [
@@ -154,14 +159,11 @@ def xmlcount_reward_func(completions, **kwargs) -> List[float]:
 # Format into conversation
 @dataclass
 class GRPOModelConfig(ModelConfig):
-    
-    # "HuggingFaceTB/SmolLM-135M-Instruct"
-    # "Qwen/Qwen2.5-0.5B-Instruct"
     text_model_name: str = field(default="Qwen/Qwen3-4B", metadata={"help": "Model checkpoint for weights initialization."})
     dna_model_name: str = field(default="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species", metadata={"help": "Model checkpoint for weights initialization."})
     cache_dir: str = field(default="/large_storage/goodarzilab/bioreason/cache_dir", metadata={"help": "Path to model cache directory."})
-    max_length_text: int = field(default=800, metadata={"help": "Maximum length of text sequences."})
-    max_length_dna: int = field(default=800, metadata={"help": "Maximum length of DNA sequences, in groups of 6 nucleotides."})
+    max_length_text: int = field(default=1024, metadata={"help": "Maximum length of text sequences."})
+    max_length_dna: int = field(default=1024, metadata={"help": "Maximum length of DNA sequences, in groups of 6 nucleotides."})
     sft_checkpoint: str = field(default=None, metadata={"help": "Path to the checkpoint for SFT."})
     lora_r: int = field(default=16, metadata={"help": "LoRA R value."})
     lora_alpha: int = field(default=32, metadata={"help": "LoRA alpha."})
@@ -173,6 +175,9 @@ class GRPOModelConfig(ModelConfig):
     dna_model_finetune: bool = False
     dna_projection_finetune: bool = True
     peft_ckpt: bool = False
+    dna_is_evo2: bool = field(default=False, metadata={"help": "Whether the DNA model is Evo2."})
+    dna_embedding_layer: str = field(default=None, metadata={"help": "Evo2 layer name to extract embeddings from (required when dna_is_evo2=True)."})
+    truncate_dna_per_side: int = field(default=0, metadata={"help": "Number of base pairs to truncate from each end of the DNA sequence. If 0, no truncation is applied."})
 
 @dataclass
 class GRPOScriptArguments(ScriptArguments):
@@ -226,15 +231,23 @@ def _prep_for_training(
     we need to systematically enable training for each component based on parameters.
     """    
     # DNA encoder
+    # Handle Evo2 wrapper vs HuggingFace models
+    if hasattr(model, 'dna_is_evo2') and model.dna_is_evo2:
+        # For Evo2, access the internal model
+        dna_model = model.dna_model.model
+    else:
+        # For HF models, access directly
+        dna_model = model.dna_model
+    
     if dna_model_finetune:
-        model.dna_model.train()
+        dna_model.train()
         print("DNA model is training")
-        for param in model.dna_model.parameters():
+        for param in dna_model.parameters():
             param.requires_grad = True
     else:
-        model.dna_model.eval()
+        dna_model.eval()
         print("DNA model is eval")
-        for param in model.dna_model.parameters():
+        for param in dna_model.parameters():
             param.requires_grad = False
     
     # DNA projection
@@ -301,6 +314,8 @@ def main(script_args, training_args, model_args):
         max_length_dna=model_args.max_length_dna,
         text_model_finetune=True,
         dna_model_finetune=model_args.dna_model_finetune,
+        dna_is_evo2=model_args.dna_is_evo2,
+        dna_embedding_layer=model_args.dna_embedding_layer,
         device="cuda",
     )
     
@@ -314,17 +329,22 @@ def main(script_args, training_args, model_args):
     if model_args.sft_checkpoint is not None:
         training_args.vllm_ckpt = model_args.sft_checkpoint
         print(f"Loading SFT checkpoint from {model_args.sft_checkpoint}")
-        model.text_model = AutoModelForCausalLM.from_pretrained(
-            model_args.sft_checkpoint, trust_remote_code=True
-        )
-        #model.load_custom_components(model_args.sft_checkpoint, go_obo_path=ONTOLOGY_PATH, precomputed_embeddings_path=GO_EMBD_PATH)
-        
         
         # Determine if it's a directory (PEFT format) or file (PyTorch state dict)
         is_directory = os.path.isdir(model_args.sft_checkpoint) 
         print(f"model_args.peft_ckpt: {model_args.peft_ckpt}")
         
         if is_directory and model_args.peft_ckpt:
+            # Load tokenizer from checkpoint
+            print(f"Loading tokenizer from PEFT checkpoint: {model_args.sft_checkpoint}")
+            model.text_tokenizer = AutoTokenizer.from_pretrained(
+                model_args.sft_checkpoint, trust_remote_code=True
+            )
+            
+            # Load text model from checkpoint
+            model.text_model = AutoModelForCausalLM.from_pretrained(
+                model_args.sft_checkpoint, trust_remote_code=True
+            )
             
             # First initialize the text model with PEFT
             print("Loading as PEFT checkpoint directory")
@@ -343,6 +363,12 @@ def main(script_args, training_args, model_args):
             print("Successfully merged SFT knowledge into base model")
 
         elif is_directory and not model_args.peft_ckpt:
+            # Load tokenizer from checkpoint
+            print(f"Loading tokenizer from checkpoint: {model_args.sft_checkpoint}")
+            model.text_tokenizer = AutoTokenizer.from_pretrained(
+                model_args.sft_checkpoint, trust_remote_code=True
+            )
+            
             #use hf from_pretrained
             model.text_model = AutoModelForCausalLM.from_pretrained(
                 model_args.sft_checkpoint, trust_remote_code=True
@@ -493,7 +519,7 @@ def main(script_args, training_args, model_args):
     print(f"ID for '<|dna_pad|>' is: {model.text_tokenizer.convert_tokens_to_ids('<|dna_pad|>')}")
 
     
-    dataset = get_kegg_questions()
+    dataset = get_kegg_questions(truncate_dna_per_side=model_args.truncate_dna_per_side)
 
     # Custom callback to handle saving with PyTorch's native mechanism
     custom_save_callback = SaveWithPyTorchCallback()
@@ -521,10 +547,6 @@ def main(script_args, training_args, model_args):
     training_args.save_safetensors = False
 
     # Train and push the model to the Hub
-    # if list(pathlib.Path(training_args.output_dir).glob("checkpoint-*")):
-    #     trainer.train(resume_from_checkpoint=True)
-    # else:
-    #     trainer.train()
     print("="*50)
     print("Verifying Trainable Parameters...")
     print("="*50)
@@ -536,8 +558,23 @@ def main(script_args, training_args, model_args):
     print(f"\nTotal number of trainable parameters: {total_trainable_params:,}")
     print("="*50)
 
+    # Handle resume from checkpoint
+    # Note: resume_from_checkpoint is already in training_args from HuggingFace TrainingArguments
+    resume_from_checkpoint = training_args.resume_from_checkpoint
+    if resume_from_checkpoint == "True" or resume_from_checkpoint == "true":
+        # Auto-detect latest checkpoint
+        checkpoints = list(pathlib.Path(training_args.output_dir).glob("checkpoint-*"))
+        if checkpoints:
+            resume_from_checkpoint = str(max(checkpoints, key=os.path.getmtime))
+            print(f"Auto-resuming from latest checkpoint: {resume_from_checkpoint}")
+        else:
+            print("No checkpoints found to resume from. Starting fresh training.")
+            resume_from_checkpoint = None
+    elif resume_from_checkpoint:
+        print(f"Resuming from checkpoint: {resume_from_checkpoint}")
+    
     # Train and push the model to the Hub
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
 
 
 if __name__ == "__main__":

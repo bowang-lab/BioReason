@@ -415,21 +415,10 @@ def save_ckpt(args):
     dna_projection_path = os.path.join(args.save_dir, "dna_projection.pt")
     torch.save(model.dna_projection.state_dict(), dna_projection_path)
     print(f"✅ DNA projection saved to {dna_projection_path}")
-
-    # Save DNA model separately if needed
-    dna_model_path = os.path.join(args.save_dir, "dna_model")
-    os.makedirs(dna_model_path, exist_ok=True)
-    if hasattr(model.dna_model, "save_pretrained"):
-        model.dna_model.save_pretrained(dna_model_path)
-    else:
-        torch.save(
-            model.dna_model.state_dict(),
-            os.path.join(dna_model_path, "pytorch_model.bin"),
-        )
-    print(f"✅ DNA model saved to {dna_model_path}")
-
+    
     print("✅ Complete merged model saved successfully!")
     print(f"📁 Model saved to: {args.save_dir}")
+    print("ℹ️  Note: DNA model not saved (frozen weights, load from original checkpoint)")
 
     # save the missing and unexpected keys to a file
     with open(os.path.join(args.save_dir, "missing_and_unexpected_keys.txt"), "w") as f:
@@ -444,7 +433,11 @@ def save_ckpt(args):
     # Report parameter counts
     total_params = sum(p.numel() for p in model.parameters())
     text_params = sum(p.numel() for p in model.text_model.parameters())
-    dna_params = sum(p.numel() for p in model.dna_model.parameters())
+    # Handle Evo2 wrapper for parameter counting
+    if model.dna_is_evo2:
+        dna_params = sum(p.numel() for p in model.dna_model.model.parameters())
+    else:
+        dna_params = sum(p.numel() for p in model.dna_model.parameters())
     print(
         f"✅ Loaded model with {total_params/1e6:.1f}M parameters "
         f"(text {text_params/1e6:.1f}M • DNA {dna_params/1e6:.1f}M)"

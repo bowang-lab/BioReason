@@ -1,34 +1,34 @@
 #!/bin/bash
 
-# Convert DeepSpeed checkpoint to HuggingFace format for DNA-LLM
-# Usage: ./sh_convert_deepspeed_to_hf_ckpt_dna.sh
+# Convert GRPO checkpoint to HuggingFace format for DNA-LLM
+# Usage: ./sh_convert_grpo_to_hf_ckpt.sh
 
 # =============================================================================
-# Configuration - Modify these paths as needed
+# Configuration - GRPO Checkpoint Conversion
 # =============================================================================
 
-# Input checkpoint path (DeepSpeed format)
-CHECKPOINT_PATH="/large_storage/goodarzilab/bioreason/checkpoints/evo2-1b-qwen3-4b-kegg-Qwen3-4B-20250514-155113/last.ckpt"
+# Input checkpoint path (GRPO checkpoint)
+CHECKPOINT_PATH="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo-4b-evo2/checkpoint-1000"
 
 # Output directory for HuggingFace format
-SAVE_DIR="/large_storage/goodarzilab/bioreason/checkpoints/evo2-1b-qwen3-4b-kegg-Qwen3-4B-20250514-155113/last.ckpt/output_dir"
+SAVE_DIR="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo-4b-evo2/checkpoint-1000-hf"
 
-# Model configuration
+# Model configuration (same as training)
 TEXT_MODEL_NAME="Qwen/Qwen3-4B"
 # DNA_MODEL_NAME="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species"
 DNA_MODEL_NAME="evo2_1b_base"
 
-# Path configuration - adjust based on your setup
+# Path configuration
 CACHE_DIR="/large_storage/goodarzilab/bioreason/cache_dir"
 
-# Training hyperparameters (should match your training config from sh_train_dna_qwen.sh)
+# Training hyperparameters (matching GRPO training from test_grpo_dna.sh)
 MAX_LENGTH_TEXT=2048
 MAX_LENGTH_DNA=2048
-LORA_RANK=32
-LORA_ALPHA=64
-LORA_DROPOUT=0.05
+LORA_RANK=16        # GRPO used lora_r=16
+LORA_ALPHA=32       # GRPO used lora_alpha=32
+LORA_DROPOUT=0.0    # GRPO used lora_dropout=0
 
-# DNA-specific settings
+# DNA-specific settings (same as SFT)
 DNA_IS_EVO2=True    # False
 DNA_EMBEDDING_LAYER="blocks.20.mlp.l3"  # Only needed for Evo2
 DNA_MODEL_FINETUNE=False
@@ -47,7 +47,7 @@ fi
 
 if [ "$#" -eq 0 ]; then
     echo "Usage: $0 <checkpoint_path> [save_dir]"
-    echo "Example: $0 /path/to/checkpoint/last.ckpt /path/to/output/hf_model"
+    echo "Example: $0 /path/to/checkpoint-700 /path/to/output/hf_model"
     echo "Using default paths from configuration above..."
 fi
 
@@ -56,9 +56,10 @@ if [ ! -d "$CHECKPOINT_PATH" ]; then
     exit 1
 fi
 
-echo "Converting DeepSpeed checkpoint to HuggingFace format..."
+echo "Converting GRPO checkpoint to HuggingFace format..."
 echo "Input: $CHECKPOINT_PATH"
 echo "Output: $SAVE_DIR"
+echo "LoRA config: rank=$LORA_RANK, alpha=$LORA_ALPHA, dropout=$LORA_DROPOUT"
 
 # =============================================================================
 # Run conversion
@@ -67,7 +68,7 @@ echo "Output: $SAVE_DIR"
 cd /home/adibvafa/BioReason
 
 # Build command with conditional flags
-CMD="/home/adibvafa/miniconda/envs/bio/bin/python bioreason/utils/save_ckpt_dna.py \
+CMD="/home/adibvafa/miniconda/envs/bio/bin/python bioreason/utils/save_grpo_ckpt.py \
     --checkpoint_path \"$CHECKPOINT_PATH\" \
     --save_dir \"$SAVE_DIR\" \
     --text_model_name \"$TEXT_MODEL_NAME\" \
@@ -108,3 +109,4 @@ else
     echo "❌ Conversion failed!"
     exit 1
 fi
+
