@@ -13,7 +13,6 @@ from safetensors import safe_open
 from bioreason.models.dl.processing_dl import DLProcessor
 from bioreason.models.dl.chat_template_dl import CHAT_TEMPLATE
 from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
-
 register_evo2_tokenizer()
 
 
@@ -81,8 +80,14 @@ class DNALLMModel(nn.Module):
             dtype=self.dtype,
         )
 
-        self.text_tokenizer = AutoTokenizer.from_pretrained(ckpt_dir, trust_remote_code=True)
-        self.text_config = AutoConfig.from_pretrained(ckpt_dir, trust_remote_code=True)
+        self.text_tokenizer = AutoTokenizer.from_pretrained(
+            ckpt_dir,
+            trust_remote_code=True
+        )
+        self.text_config = AutoConfig.from_pretrained(
+            ckpt_dir,
+            trust_remote_code=True
+        )
 
         # Chat template + pad token
         self.text_tokenizer.chat_template = CHAT_TEMPLATE
