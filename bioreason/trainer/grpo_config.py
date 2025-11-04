@@ -199,7 +199,7 @@ class DNALLMGRPOConfig(TrainingArguments):
 
     # Core training parameters
     output_dir: str = field(
-        default="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo",
+        default=None,
         metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
     )
     run_name: str = field(

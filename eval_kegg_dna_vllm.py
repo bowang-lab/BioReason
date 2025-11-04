@@ -59,9 +59,9 @@ def load_kegg_test_dataset(truncate_dna_per_side: int = 1024) -> List[Dict[str, 
 
 def initialize_model(
     ckpt_dir: str,
+    cache_dir: str,
     text_model_name: str = "Qwen/Qwen3-4B",
     dna_model_name: str = "InstaDeepAI/nucleotide-transformer-v2-500m-multi-species",
-    cache_dir: str = "/large_storage/goodarzilab/bioreason/cache_dir",
     max_length_dna: int = 1024,
     max_length_text: int = 512,
     gpu_memory_utilization: float = 0.4,
@@ -324,6 +324,12 @@ def main():
         help="Path to the checkpoint directory"
     )
     parser.add_argument(
+        "--cache_dir",
+        type=str,
+        required=True,
+        help="Cache directory for models"
+    )
+    parser.add_argument(
         "--text_model_name",
         type=str,
         default="Qwen/Qwen3-4B",
@@ -334,12 +340,6 @@ def main():
         type=str,
         default="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species",
         help="Name of the DNA model"
-    )
-    parser.add_argument(
-        "--cache_dir",
-        type=str,
-        default="/large_storage/goodarzilab/bioreason/cache_dir",
-        help="Cache directory for models"
     )
     parser.add_argument(
         "--output_dir",
@@ -437,9 +437,9 @@ def main():
         # Initialize model
         model = initialize_model(
             ckpt_dir=args.ckpt_dir,
+            cache_dir=args.cache_dir,
             text_model_name=args.text_model_name,
             dna_model_name=args.dna_model_name,
-            cache_dir=args.cache_dir,
             max_length_dna=args.max_length_dna,
             max_length_text=args.max_length_text,
             gpu_memory_utilization=args.gpu_memory_utilization,

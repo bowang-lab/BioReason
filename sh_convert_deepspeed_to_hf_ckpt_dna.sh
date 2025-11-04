@@ -8,10 +8,10 @@
 # =============================================================================
 
 # Input checkpoint path (DeepSpeed format)
-CHECKPOINT_PATH="/large_storage/goodarzilab/bioreason/checkpoints/evo2-1b-qwen3-4b-kegg-Qwen3-4B-20250514-155113/last.ckpt"
+CHECKPOINT_PATH=CHECKPOINT_PATH
 
 # Output directory for HuggingFace format
-SAVE_DIR="/large_storage/goodarzilab/bioreason/checkpoints/evo2-1b-qwen3-4b-kegg-Qwen3-4B-20250514-155113/last.ckpt/output_dir"
+SAVE_DIR=SAVE_DIR
 
 # Model configuration
 TEXT_MODEL_NAME="Qwen/Qwen3-4B"
@@ -19,7 +19,7 @@ TEXT_MODEL_NAME="Qwen/Qwen3-4B"
 DNA_MODEL_NAME="evo2_1b_base"
 
 # Path configuration - adjust based on your setup
-CACHE_DIR="/large_storage/goodarzilab/bioreason/cache_dir"
+CACHE_DIR=CACHE_DIR    # Change to the directory where the model weights are cached
 
 # Training hyperparameters (should match your training config from sh_train_dna_qwen.sh)
 MAX_LENGTH_TEXT=2048
@@ -64,10 +64,10 @@ echo "Output: $SAVE_DIR"
 # Run conversion
 # =============================================================================
 
-cd /home/adibvafa/BioReason
+cd WORKING_DIRECTORY  # Change to the root directory of your project e.g. /home/$USER/bioreason
 
 # Build command with conditional flags
-CMD="/home/adibvafa/miniconda/envs/bio/bin/python bioreason/utils/save_ckpt_dna.py \
+CMD="python bioreason/utils/save_ckpt_dna.py \
     --checkpoint_path \"$CHECKPOINT_PATH\" \
     --save_dir \"$SAVE_DIR\" \
     --text_model_name \"$TEXT_MODEL_NAME\" \

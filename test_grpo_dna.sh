@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH -J dna_grpo_test_colocate
-#SBATCH -p goodarzilab_gpu_priority
+#SBATCH -p a100
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=2          # one trainer per GPU
 #SBATCH --ntasks=2
@@ -14,7 +14,7 @@
 set -eo pipefail
 
 # ----- user/env -----
-USER="adibvafa"
+USER=USERNAME  # Change to your username
 ENV_NAME="bio"
 export PATH="/home/$USER/miniconda/envs/$ENV_NAME/bin:$PATH"
 source "/home/$USER/miniconda/etc/profile.d/conda.sh"
@@ -29,8 +29,9 @@ set -u
 cd "$HOME/BioReason"
 
 # ----- data & project -----
-export CACHE_DIR="/large_storage/goodarzilab/bioreason/cache_dir"
-export SFT_CHECKPOINT="/large_storage/goodarzilab/bioreason/checkpoints/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-20250511-190543/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-epoch=03-val_loss_epoch=0.3599.ckpt/output_dir"
+export CACHE_DIR=CACHE_DIR
+export SFT_CHECKPOINT=SFT_CHECKPOINT # ending in output_dir
+export OUTPUT_DIR=OUTPUT_DIR
 export WANDB_PROJECT="dna-grpo"
 
 # ----- runtime (single node) -----
@@ -103,7 +104,7 @@ python -u train_grpo.py \
   --temperature 0.7 \
   --top_p 0.95 \
   --top_k 20 \
-  --output_dir /large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo2 \
+  --output_dir "$OUTPUT_DIR" \
   --save_strategy steps --save_steps 100 --save_total_limit 2 \
   --lr_scheduler_type cosine --warmup_ratio 0.03 \
   --log_completions True \

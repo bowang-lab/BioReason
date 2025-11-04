@@ -84,7 +84,7 @@ def get_kegg_questions(truncate_dna_per_side: int = 0) -> Dataset:
 class GRPOModelConfig(ModelConfig):
     text_model_name: str = field(default="Qwen/Qwen3-4B", metadata={"help": "Model checkpoint for weights initialization."})
     dna_model_name: str = field(default="InstaDeepAI/nucleotide-transformer-v2-500m-multi-species", metadata={"help": "Model checkpoint for weights initialization."})
-    cache_dir: str = field(default="/large_storage/goodarzilab/bioreason/cache_dir", metadata={"help": "Path to model cache directory."})
+    cache_dir: str = field(default=None, metadata={"help": "Path to model cache directory."})
     max_length_text: int = field(default=1024, metadata={"help": "Maximum length of text sequences."})
     max_length_dna: int = field(default=1024, metadata={"help": "Maximum length of DNA sequences, in groups of 6 nucleotides."})
     sft_checkpoint: str = field(default=None, metadata={"help": "Path to the checkpoint for SFT."})

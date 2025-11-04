@@ -492,7 +492,7 @@ if __name__ == "__main__":
     parser.add_argument("--ckpt_path", type=str, default=None)
     parser.add_argument("--log_dir", type=str, default="logs")
     parser.add_argument("--wandb_project", type=str, default="dna-only-nt-500m")
-    parser.add_argument("--wandb_entity", type=str, default="adibvafa")
+    parser.add_argument("--wandb_entity", type=str, required=True)
     parser.add_argument("--merge_val_test_set", type=bool, default=True)
 
     # Other parameters

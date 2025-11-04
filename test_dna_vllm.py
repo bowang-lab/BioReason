@@ -6,18 +6,35 @@ Tests the vLLM-backed DNA-LLM model with a simple text-only question.
 
 import os
 import sys
+import argparse
 from bioreason.models.dna_vllm import DNALLMModel
 
 def main():
     print("=" * 80)
     print("DNA-vLLM Test Script")
     print("=" * 80)
+
+    # Args for ckpt_dir and cache-dir
+    p = argparse.ArgumentParser(description="DNA-vLLM Test Script")
+    p.add_argument(
+        "--ckpt_dir",
+        type=str,
+        required=True,
+        help="Path to the checkpoint directory containing the model output_dir.",
+    )
+    p.add_argument(
+        "--cache_dir",
+        type=str,
+        required=True,
+        help="Path to the cache directory for model downloads.",
+    )
+    args = p.parse_args()
+    ckpt_dir = args.ckpt_dir
+    cache_dir = args.cache_dir
     
     # Configuration
-    ckpt_dir = "/large_storage/goodarzilab/bioreason/checkpoints/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-20250511-190543/nt-500m-qwen3-4b-finetune-kegg-Qwen3-4B-epoch=03-val_loss_epoch=0.3599.ckpt/output_dir"
     text_model_name = "Qwen/Qwen3-4B"
     dna_model_name = "InstaDeepAI/nucleotide-transformer-v2-500m-multi-species"
-    cache_dir = "/large_storage/goodarzilab/bioreason/cache_dir"
     
     print(f"\n📁 Checkpoint directory: {ckpt_dir}")
     print(f"🤖 Text model: {text_model_name}")

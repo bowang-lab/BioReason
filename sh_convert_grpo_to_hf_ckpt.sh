@@ -8,10 +8,10 @@
 # =============================================================================
 
 # Input checkpoint path (GRPO checkpoint)
-CHECKPOINT_PATH="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo-4b-evo2/checkpoint-1000"
+CHECKPOINT_PATH=CHECKPOINT_PATH
 
 # Output directory for HuggingFace format
-SAVE_DIR="/large_storage/goodarzilab/bioreason/checkpoints/dna-llm-grpo-4b-evo2/checkpoint-1000-hf"
+SAVE_DIR=SAVE_DIR    # Change t
 
 # Model configuration (same as training)
 TEXT_MODEL_NAME="Qwen/Qwen3-4B"
@@ -19,7 +19,7 @@ TEXT_MODEL_NAME="Qwen/Qwen3-4B"
 DNA_MODEL_NAME="evo2_1b_base"
 
 # Path configuration
-CACHE_DIR="/large_storage/goodarzilab/bioreason/cache_dir"
+CACHE_DIR=CACHE_DIR    # Change to the directory where the model weights are cached
 
 # Training hyperparameters (matching GRPO training from test_grpo_dna.sh)
 MAX_LENGTH_TEXT=2048
@@ -65,10 +65,10 @@ echo "LoRA config: rank=$LORA_RANK, alpha=$LORA_ALPHA, dropout=$LORA_DROPOUT"
 # Run conversion
 # =============================================================================
 
-cd /home/adibvafa/BioReason
+cd WORKING_DIRECTORY  # Change to the root directory of your project e.g. /home/$USER/bioreason
 
 # Build command with conditional flags
-CMD="/home/adibvafa/miniconda/envs/bio/bin/python bioreason/utils/save_grpo_ckpt.py \
+CMD="python bioreason/utils/save_grpo_ckpt.py \
     --checkpoint_path \"$CHECKPOINT_PATH\" \
     --save_dir \"$SAVE_DIR\" \
     --text_model_name \"$TEXT_MODEL_NAME\" \
