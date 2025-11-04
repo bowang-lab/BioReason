@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from trl.extras.vllm_client import VLLMClient
-from trl.import_utils import is_liger_kernel_available, is_vllm_available
+from trl.import_utils import is_vllm_available
 
 if is_vllm_available():
     from vllm import LLM, SamplingParams

@@ -5,7 +5,7 @@ import torch
 import wandb
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
-from transformers import get_cosine_schedule_with_warmup, AutoTokenizer
+from transformers import get_cosine_schedule_with_warmup
 from datasets import load_dataset, concatenate_datasets
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
@@ -15,7 +15,7 @@ from bioreason.models.dna_only import DNAClassifierModel
 from bioreason.dataset.utils import truncate_dna
 from bioreason.dataset.kegg import dna_collate_fn
 from bioreason.dataset.variant_effect import clean_variant_effect_example
-from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
+from bioreason.models.evo2_tokenizer import register_evo2_tokenizer
 register_evo2_tokenizer()
 
 

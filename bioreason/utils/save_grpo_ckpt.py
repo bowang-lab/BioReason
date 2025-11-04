@@ -1,7 +1,7 @@
 import os
 import shutil
 import torch
-from bioreason.models.dna_llm import DNALLMModel
+from bioreason.models.dna_llm import DNALLMModel, get_target_modules
 from bioreason.models.evo2_tokenizer import register_evo2_tokenizer
 from pathlib import Path
 import argparse
@@ -9,38 +9,6 @@ from peft import LoraConfig, prepare_model_for_kbit_training, get_peft_model
 
 # Register Evo2Tokenizer with transformers
 register_evo2_tokenizer()
-
-
-def _get_target_modules(model: DNALLMModel):
-    """Get target modules for LoRA"""
-    target_modules = []
-    seen_names = set()
-    
-    for name, module in model.text_model.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            names = name.split(".")
-            target_name = names[-1]
-            
-            if target_name != "lm_head" and target_name not in seen_names:
-                target_modules.append(target_name)
-                seen_names.add(target_name)
-    
-    # Add attention-specific layers
-    attention_patterns = [
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "out_proj",
-        "query",
-        "key",
-        "value",
-    ]
-    for pattern in attention_patterns:
-        if pattern not in seen_names:
-            target_modules.append(pattern)
-    
-    return list(target_modules)
-
 
 def _setup_lora_for_checkpoint_loading(
     model: DNALLMModel,
@@ -52,7 +20,7 @@ def _setup_lora_for_checkpoint_loading(
     print(f"🔧 Setting up LoRA for GRPO checkpoint (rank={lora_rank}, alpha={lora_alpha}, dropout={lora_dropout})")
     
     # Get target modules
-    target_modules = _get_target_modules(model)
+    target_modules = get_target_modules(model)
     
     lora_config = LoraConfig(
         r=lora_rank,

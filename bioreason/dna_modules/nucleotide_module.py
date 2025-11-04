@@ -7,6 +7,8 @@ from typing import Dict, Any, Union, List, Optional, Callable, Type
 from trl.data_utils import maybe_apply_chat_template
 import torch
 
+import re
+
 from bioreason.dna_modules.dna_module import DNABaseModule
 from bioreason.models.dna_llm import DNALLMModel
 from bioreason.models.dl.processing_dl import DLProcessor
@@ -23,35 +25,6 @@ class NucleotideDNAModule(DNABaseModule):
     def __init__(self):
         """Initialize the NucleotideDNAModule."""
         super().__init__()
-
-    def get_dnallm_key(self) -> str:
-        """
-        Get the key identifier for this DNA-LLM implementation.
-
-        Returns:
-            String identifier for this module type
-        """
-        return "qwen"
-
-    def get_model_class(self, model_id: str, model_init_kwargs: Dict[str, Any]) -> Type:
-        """
-        Return the appropriate model class based on model ID.
-
-        Args:
-            model_id: Identifier for the model
-            model_init_kwargs: Initialization arguments for the model
-
-        Returns:
-            The model class to instantiate
-
-        Raises:
-            ValueError: If the model is not supported
-        """
-        if "DNALLM" in model_id:
-            model_cls = DNALLMModel
-        else:
-            raise ValueError(f"Unsupported model: {model_id}")
-        return model_cls
 
     def post_model_init(self, model: Any, processing_class: Any) -> None:
         """
@@ -192,6 +165,57 @@ class NucleotideDNAModule(DNABaseModule):
             String template for questions
         """
         return "{Question}"
+
+    @staticmethod
+    def _extract_xml_answer(text: str) -> str:
+        answer = text.split("</think>")[-1]
+        return answer.strip()
+
+    # Reward functions
+    @staticmethod
+    def correctness_reward_func(prompts, completions, answer, **kwargs) -> List[float]:
+        responses = [completion[0]['content'] for completion in completions]
+        q = prompts[0][-1]['content']
+        extracted_responses = [NucleotideDNAModule._extract_xml_answer(r) for r in responses]
+        # extracted_responses = [r.lower().replace("answer:", "").strip() for r in extracted_responses]
+        print('-'*20, f"Question:\n{q}", f"\nAnswer:\n{answer[0]}", f"\nResponse:\n{responses[0]}", f"\nExtracted:\n{extracted_responses[0]}")
+        return [2.0 if a.lower() in r.lower() else 0.0 for r, a in zip(extracted_responses, answer)]
+    
+    @staticmethod
+    def concise_reward_func(completions, **kwargs) -> List[float]:
+        responses = [completion[0]['content'] for completion in completions]
+        extracted_responses = [NucleotideDNAModule._extract_xml_answer(r) for r in responses]
+        return [0.5 if len(r.split(' ')) <= 10 else 0.0 for r in extracted_responses]
+    
+    @staticmethod
+    def strict_format_reward_func(completions, **kwargs) -> List[float]:
+        """Reward function that checks if the completion has a specific format."""
+        pattern = r"^<think>\n.*?\n</think>\n.*?\n$"
+        responses = [completion[0]["content"] for completion in completions]
+        matches = [re.match(pattern, r) for r in responses]
+        return [0.5 if match else 0.0 for match in matches]
+    
+    @staticmethod
+    def soft_format_reward_func(completions, **kwargs) -> List[float]:
+        """Reward function that checks if the completion has a specific format."""
+        pattern = r"<think>.*?</think>\s*.*?"
+        responses = [completion[0]["content"] for completion in completions]
+        matches = [re.match(pattern, r) for r in responses]
+        return [0.5 if match else 0.0 for match in matches]
+    
+    @staticmethod
+    def xmlcount_reward_func(completions, **kwargs) -> List[float]:
+        contents = [completion[0]["content"] for completion in completions]
+        return [NucleotideDNAModule._count_xml(c) for c in contents]
+
+    @staticmethod
+    def _count_xml(text) -> float:
+        count = 0.0
+        if text.count("<think>\n") == 1:
+            count += 0.125
+        if text.count("\n</think>\n") == 1:
+            count += 0.125
+        return count
 
     @staticmethod
     def format_reward_rec(completions: List[Dict[str, Any]], **kwargs) -> List[float]:

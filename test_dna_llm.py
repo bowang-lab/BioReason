@@ -8,20 +8,20 @@ import os
 import sys
 import torch
 import argparse
-from typing import Dict, List, Any
+from typing import Dict, Any
 from dataclasses import dataclass, field
 
 # Add the bioreason package to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from bioreason.models.dna_llm import DNALLMModel, _get_target_modules
-from bioreason.models.dl.processing_dl import DLProcessor
-from bioreason.dna_modules import NucleotideDNAModule
 from trl.data_utils import maybe_apply_chat_template
-from datasets import load_dataset, concatenate_datasets
+from datasets import load_dataset
 from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training
 from transformers import AutoModelForCausalLM
 
+from bioreason.models.dna_llm import DNALLMModel, get_target_modules
+from bioreason.models.dl.processing_dl import DLProcessor
+from bioreason.dataset.kegg import format_kegg_for_dna_llm
 
 @dataclass
 class TestModelConfig:
@@ -39,29 +39,6 @@ class TestModelConfig:
     dna_model_finetune: bool = False
     dna_projection_finetune: bool = True
     peft_ckpt: bool = False
-
-
-def format_kegg_for_dna_llm(example: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Format a KEGG example into the required chat format for DNA-LLM.
-    """
-    return {
-        "prompt": [
-            {
-                "role": "user",
-                "content": [
-                    *({"type": "dna", "text": None} for _ in range(2)),
-                    {"type": "text", "text": example["question"].strip()},
-                ],
-            }
-        ],
-        "dna_sequences": [
-            example["reference_sequence"],
-            example["variant_sequence"],
-        ],
-        "answer": example["answer"],
-    }
-
 
 def load_first_kegg_example() -> Dict[str, Any]:
     """
@@ -81,11 +58,10 @@ def load_first_kegg_example() -> Dict[str, Any]:
     print(f"Loaded first example: {first_example['question'][:100]}...")
     
     # Format example for DNA-LLM
-    formatted_example = format_kegg_for_dna_llm(first_example)
+    formatted_example = format_kegg_for_dna_llm(first_example, is_sft=False)
     
     print(f"Formatted example for DNA-LLM evaluation")
     return formatted_example
-
 
 def _prep_for_training(
     model: DNALLMModel,
@@ -132,7 +108,7 @@ def _prep_for_training(
     
     else:
         # Text model: setup LoRA and set to train mode
-        target_modules = _get_target_modules(model)
+        target_modules = get_target_modules(model)
 
         lora_config = LoraConfig(
             r=model_args.lora_r,
@@ -340,7 +316,7 @@ def evaluate_single_example(
         batch_idx_map=prepared.get("batch_idx_map"),
         **generation_kwargs
     )
-    breakpoint()
+
     # Extract the generated text
     generated_text = processor.batch_decode(outputs[0], skip_special_tokens=True)
     # processor.batch_decode(prepared["input_ids"], skip_special_tokens=False)

@@ -7,9 +7,8 @@ Evaluates the vLLM-backed DNA-LLM model performance on biological reasoning task
 import os
 import sys
 import json
-import torch
 import argparse
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 from tqdm import tqdm
 import pandas as pd
 from datetime import datetime
@@ -20,48 +19,28 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from bioreason.models.dna_vllm import DNALLMModel
 from bioreason.models.dl.processing_dl import DLProcessor
 from bioreason.dataset.utils import truncate_dna
+from bioreason.dataset.kegg import format_kegg_for_dna_llm
 from trl.data_utils import maybe_apply_chat_template
 from datasets import load_dataset, concatenate_datasets
 
-def format_kegg_for_dna_llm(example: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Format a KEGG example into the required chat format for DNA-LLM.
-    """
-    return {
-        "prompt": [
-            {
-                "role": "user",
-                "content": [
-                    *({"type": "dna", "text": None} for _ in range(2)),
-                    {"type": "text", "text": example["question"].strip()},
-                ],
-            }
-        ],
-        "dna_sequences": [
-            example["reference_sequence"],
-            example["variant_sequence"],
-        ],
-        "answer": example["answer"],
-    }
-
 def load_kegg_test_dataset(truncate_dna_per_side: int = 1024) -> List[Dict[str, Any]]:
     """
-    Load the KEGG test dataset from HuggingFace.
+    Load the KEGG val and test datasets from HuggingFace.
     
     Args:
         truncate_dna_per_side: Number of base pairs to truncate from each end of the DNA sequence
 
     Returns:
-        List of test examples formatted for DNA-LLM evaluation
+        List of validation and test examples formatted for DNA-LLM evaluation
     """
-    print("Loading KEGG test dataset from HuggingFace...")
-    
+    print("Loading KEGG val and test datasets from HuggingFace...")
+
     # Load the dataset
     dataset = load_dataset('wanglab/kegg', 'default')
     test_dataset = dataset['test']
     val_dataset = dataset['val']
     test_val_dataset = concatenate_datasets([test_dataset, val_dataset])
-    print(f"Loaded {len(test_val_dataset)} test examples")
+    print(f"Loaded {len(test_val_dataset)} validation and test examples")
 
     # Truncate
     if truncate_dna_per_side > 0:
@@ -72,7 +51,7 @@ def load_kegg_test_dataset(truncate_dna_per_side: int = 1024) -> List[Dict[str, 
     # Format examples for DNA-LLM
     formatted_test_val_examples = []
     for example in test_val_dataset:
-        formatted_example = format_kegg_for_dna_llm(example)
+        formatted_example = format_kegg_for_dna_llm(example, is_sft=False)
         formatted_test_val_examples.append(formatted_example)
     
     print(f"Formatted {len(formatted_test_val_examples)} examples for DNA-LLM evaluation")
@@ -153,7 +132,6 @@ def evaluate_single_example(
         Dictionary containing the evaluation result
     """
     # Prepare prompt text and inputs via DLProcessor to duplicate DNA pad tokens
-    #breakpoint()
     prompts_text = [maybe_apply_chat_template(example, processor)["prompt"]]
     prepared = processor(
         text=prompts_text,
@@ -175,16 +153,6 @@ def evaluate_single_example(
         **generation_kwargs
     )
 
-    # outputs = model.generate(
-    #     input_ids=prepared["input_ids"],
-    #     attention_mask=prepared["attention_mask"],
-    #     dna_tokenized=None,
-    #     batch_idx_map=None,
-    #     **generation_kwargs
-    # )
-
-    # outputs = model.generate(input_ids=prepared["input_ids"], attention_mask=prepared["attention_mask"], dna_tokenized=None, batch_idx_map=None, **generation_kwargs)
-    
     # Extract the generated text
     generated_text = outputs[0] if outputs else ""
     
@@ -197,17 +165,15 @@ def evaluate_single_example(
     # Get ground truth answer
     ground_truth = example["answer"].strip().lower()
 
-    # clean both
+    # Clean both
     for char in ".,!?\"'":
         predicted_answer = predicted_answer.replace(char, "")
         ground_truth = ground_truth.replace(char, "")
 
     # Determine if prediction is correct
-    #is_correct = predicted_answer == ground_truth
     is_correct = ground_truth in predicted_answer
     print('predicted_answer:', predicted_answer, 'ground_truth:', ground_truth, 'is_correct:', is_correct)
     
-    #breakpoint()
     return {
         'prompts_text': prompts_text,
         "generated_text": generated_text,

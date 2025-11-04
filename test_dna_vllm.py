@@ -6,9 +6,7 @@ Tests the vLLM-backed DNA-LLM model with a simple text-only question.
 
 import os
 import sys
-import torch
-#from bioreason.models.dna_vllm import DNALLMModel
-from bioreason.models.dna_llm import DNALLMModel
+from bioreason.models.dna_vllm import DNALLMModel
 
 def main():
     print("=" * 80)

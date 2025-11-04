@@ -12,17 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import copy
 import inspect
 import os
 import random
 import time
-import textwrap
-import pandas as pd
 from collections import defaultdict, deque
 from contextlib import nullcontext
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union, Sized
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import torch
 import torch.utils.data
@@ -31,7 +27,7 @@ import transformers
 
 from functools import partial
 from accelerate import logging
-from accelerate.utils import broadcast_object_list, gather, gather_object, is_peft_model, set_seed
+from accelerate.utils import gather, gather_object, is_peft_model, set_seed
 from datasets import Dataset, IterableDataset
 from packaging import version
 from torch import nn
@@ -49,11 +45,9 @@ from transformers import (
     TrainerCallback,
     is_wandb_available,
 )
-from transformers.integrations.deepspeed import is_deepspeed_zero3_enabled
 from transformers.trainer_utils import seed_worker
-from transformers.utils import is_peft_available, is_datasets_available, is_flash_attn_2_available, is_rich_available
+from transformers.utils import is_peft_available, is_datasets_available
 
-from trl.data_utils import apply_chat_template, is_conversational, maybe_apply_chat_template
 from trl.models import prepare_deepspeed, unwrap_model_for_generation, prepare_fsdp
 from trl.models.utils import _ForwardRedirection
 from trl.trainer.grpo_config import GRPOConfig
@@ -73,28 +67,20 @@ from trl.trainer.utils import (
     nanmin,
     nanstd,
     selective_log_softmax,
-    shuffle_sequence_dict,
     split_pixel_values_by_grid,
     split_tensor_dict,
     unsplit_pixel_values_by_grid,
 )
 
 from accelerate.utils import is_peft_model, set_seed, gather_object
-import PIL.Image
 
-import copy
 from torch.utils.data import Sampler
-import warnings
 
 if is_peft_available():
-    from peft import PeftConfig, get_peft_model, prepare_model_for_kbit_training
+    from peft import PeftConfig, get_peft_model
 
 if is_vllm_available():
     from vllm import LLM, SamplingParams
-    from vllm.sampling_params import GuidedDecodingParams
-
-if is_wandb_available():
-    import wandb
 
 from bioreason.dataset.kegg import qwen_dna_collate_fn
 from bioreason.dna_modules.dna_module import DNABaseModule
@@ -1256,7 +1242,6 @@ class DNALLMGRPOTrainer(Trainer):
                 prompt_completion_ids = torch.cat([prompt_ids, completion_ids], dim=1)
 
         completions_text = self.processing_class.batch_decode(completion_ids, skip_special_tokens=True)
-        # breakpoint()
 
         # Mask everything after the first EOS token
         is_eos = completion_ids == self.eos_token_id
@@ -1320,9 +1305,14 @@ class DNALLMGRPOTrainer(Trainer):
 
             # Compute the per-token log probabilities for the reference model
             if self.beta != 0.0:
-                if self.ref_model is not None:
-                    ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
-                        model=self.ref_model,
+                if self.ref_model is None:
+                    cm = self.accelerator.unwrap_model(self.model.text_model).disable_adapter()
+                else:
+                    cm = nullcontext()
+                
+                with cm:
+                   ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
+                        model=self.model if self.ref_model is None else self.ref_model,
                         input_ids=prompt_completion_ids,
                         attention_mask=attention_mask,
                         compute_entropy=False,
@@ -1331,18 +1321,6 @@ class DNALLMGRPOTrainer(Trainer):
                         logits_to_keep=logits_to_keep,
                         batch_size=batch_size,
                     )
-                else:
-                    with self.accelerator.unwrap_model(self.model.text_model).disable_adapter():
-                        ref_per_token_logps, _ = self._get_per_token_logps_and_entropies(
-                            model=self.model,
-                            input_ids=prompt_completion_ids,
-                            attention_mask=attention_mask,
-                            compute_entropy=False,
-                            dna_tokenized=dna_tokenized,
-                            batch_idx_map=batch_idx_map,
-                            logits_to_keep=logits_to_keep,
-                            batch_size=batch_size,
-                        )
             else:
                 ref_per_token_logps = None
 

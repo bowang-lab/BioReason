@@ -1,7 +1,5 @@
 import csv
 import gc
-import io
-import multiprocessing
 import os
 import time
 import traceback
@@ -9,14 +7,13 @@ from argparse import ArgumentParser
 from functools import partial
 from typing import *
 
-import pandas as pd
 import torch
 import wandb
-from datasets import DatasetDict, concatenate_datasets, load_dataset
+from datasets import concatenate_datasets, load_dataset
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
+from transformers import get_cosine_schedule_with_warmup
 from transformers.tokenization_utils_base import BatchEncoding
 
 import pytorch_lightning as pl
@@ -32,9 +29,9 @@ from bioreason.dataset.variant_effect import (
     get_format_variant_effect_function,
 )
 from bioreason.models.dl.processing_dl import DLProcessor
-from bioreason.models.dna_llm import DNALLMModel
-from bioreason.models.evo2_tokenizer import register_evo2_tokenizer
+from bioreason.models.dna_llm import DNALLMModel, get_target_modules
 
+from bioreason.models.evo2_tokenizer import register_evo2_tokenizer
 register_evo2_tokenizer()
 
 # Set start method to 'spawn' for CUDA compatibility with multiprocessing
@@ -100,39 +97,6 @@ class DNALLMFineTuner(pl.LightningModule):
         # Prepare model for training
         self.lora_config = self._prep_for_training()
 
-    def _get_target_modules(self):
-        # Apply LoRA to all linear layers in the text model
-        target_modules = []
-
-        # Get all unique linear layer names
-        seen_names = set()
-        for name, module in self.text_model.named_modules():
-            if isinstance(module, torch.nn.Linear):
-                names = name.split(".")
-                target_name = names[-1]  # Use the last part of the name
-
-                # Skip output head but include all other linear layers
-                if target_name != "lm_head" and target_name not in seen_names:
-                    target_modules.append(target_name)
-                    seen_names.add(target_name)
-
-        # Add attention-specific layers
-        attention_patterns = [
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "out_proj",
-            "query",
-            "key",
-            "value",
-        ]
-        for pattern in attention_patterns:
-            if pattern not in seen_names:
-                target_modules.append(pattern)
-
-        # Return all unique layer names to apply LoRA to all layers
-        return list(target_modules)
-
     def _prep_for_training(self) -> LoraConfig:
         """
         Load and configure the DNALLMModel.
@@ -150,7 +114,7 @@ class DNALLMFineTuner(pl.LightningModule):
                     param.requires_grad = False
 
         if self.text_model_finetune:
-            target_modules = self._get_target_modules()
+            target_modules = get_target_modules(self)
 
             lora_config = LoraConfig(
                 r=self.lora_rank,
@@ -414,7 +378,7 @@ class DNALLMFineTuner(pl.LightningModule):
         """Create and return the training DataLoader."""
         # Load dataset based on type specified in hyperparameters
 
-        if  self.hparams.dataset_type == "kegg":
+        if self.hparams.dataset_type == "kegg":
             # Use Hugging Face dataset if provided
             dataset = load_dataset(self.hparams.kegg_data_dir_huggingface)
             dataset = dataset.map(get_format_kegg_function(self.hparams.model_type))
@@ -546,20 +510,6 @@ class DNALLMFineTuner(pl.LightningModule):
                     truncate_dna, fn_kwargs={"truncate_dna_per_side": self.hparams.truncate_dna_per_side}
                 )
 
-            processor = DLProcessor(
-                tokenizer=self.model.text_tokenizer,
-                dna_tokenizer=self.model.dna_tokenizer,
-            )
-
-            # Create partial function with all required arguments except the batch
-            collate_fn = partial(
-                qwen_dna_collate_fn,
-                processor=processor,
-                max_length_text=self.max_length_text,
-                max_length_dna=self.max_length_dna,
-                return_answer_in_batch=self.return_answer_in_batch,
-            )
-
         elif self.hparams.dataset_type == "variant_effect_coding":
             dataset = load_dataset(self.hparams.variant_effect_coding_data_dir_huggingface)
             cleaned_dataset = dataset.map(clean_variant_effect_example)
@@ -576,20 +526,6 @@ class DNALLMFineTuner(pl.LightningModule):
                 val_dataset = val_dataset.map(
                     truncate_dna, fn_kwargs={"truncate_dna_per_side": self.hparams.truncate_dna_per_side}
                 )
-            
-            processor = DLProcessor(
-                tokenizer=self.model.text_tokenizer,
-                dna_tokenizer=self.model.dna_tokenizer,
-            )
-
-            # Create partial function with all required arguments except the batch
-            collate_fn = partial(
-                qwen_dna_collate_fn,
-                processor=processor,
-                max_length_text=self.max_length_text,
-                max_length_dna=self.max_length_dna,
-                return_answer_in_batch=self.return_answer_in_batch,
-            )
         
         elif self.hparams.dataset_type == "variant_effect_non_snv":
             dataset = load_dataset(self.hparams.variant_effect_non_snv_data_dir_huggingface)
@@ -609,23 +545,23 @@ class DNALLMFineTuner(pl.LightningModule):
                     truncate_dna, fn_kwargs={"truncate_dna_per_side": self.hparams.truncate_dna_per_side}
                 )
             val_dataset = val_dataset.map(get_format_variant_effect_function(self.hparams.model_type))
-
-            processor = DLProcessor(
+            
+        else:
+            raise ValueError(f"Unknown dataset type: {self.hparams.dataset_type}")
+    
+        processor = DLProcessor(
                 tokenizer=self.model.text_tokenizer,
                 dna_tokenizer=self.model.dna_tokenizer,
             )
-
-            # Create partial function with all required arguments except the batch
-            collate_fn = partial(
+        
+        # Create partial function with all required arguments except the batch
+        collate_fn = partial(
                 qwen_dna_collate_fn,
                 processor=processor,
                 max_length_text=self.max_length_text,
                 max_length_dna=self.max_length_dna,
                 return_answer_in_batch=self.return_answer_in_batch,
             )
-
-        else:
-            raise ValueError(f"Unknown dataset type: {self.hparams.dataset_type}")
 
         return DataLoader(
             val_dataset,

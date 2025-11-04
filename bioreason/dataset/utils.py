@@ -1,6 +1,6 @@
 from datasets import Dataset as HFDataset
 from torch.utils.data import Dataset as TorchDataset
-from typing import Dict, Any, Union, List
+from typing import Dict, Any
 
 
 def truncate_dna(

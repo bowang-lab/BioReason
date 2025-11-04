@@ -1,52 +1,33 @@
 import os
-import re
-import tempfile
 
 import pathlib
-from argparse import ArgumentParser
-from typing import List, Dict, Optional, Set, Tuple
+from typing import List, Optional
 from dataclasses import dataclass, field
-import wandb
 import torch
-from torch import nn
-import torch.nn.functional as F
-from torch.optim import AdamW
-from torch.utils.data import DataLoader, Dataset
-from transformers import get_cosine_schedule_with_warmup, AutoTokenizer
+from torch.utils.data import Dataset
+from transformers import AutoTokenizer
 
 from transformers import (
     AutoTokenizer,
-    AutoModelForCausalLM,
-    AutoModelForMaskedLM,
-    AutoProcessor,
+    AutoModelForCausalLM
 )
 
-from datasets import load_dataset, DatasetDict
+from datasets import load_dataset
 
 from peft import get_peft_model, LoraConfig, prepare_model_for_kbit_training, PeftModel
-from transformers import BitsAndBytesConfig
 
 from trl import ModelConfig, ScriptArguments, TrlParser
 
-# from bioreason2.models.protein_llm import ProteinLLMModel
-# from bioreason2.protein_modules import ESMProteinModule
-# from bioreason2.models.pl.processing_pl import PLProcessor
-# from bioreason2.trainer import ProteinLLMGRPOTrainer, ProteinLLMGRPOConfig
-# # from bioreason2.dataset.cafa5.collate import add_structures_to_dataset
-# from bioreason2.dataset.cafa5.load import load_cafa5_dataset
-# from bioreason2.dataset.cafa5.processor import _GO_DEPTH
-# from bioreason2.models.protein_llm import _get_target_modules
-
-from bioreason.models.dna_llm import DNALLMModel, _get_target_modules
+from bioreason.models.dna_llm import DNALLMModel, get_target_modules
 from bioreason.dna_modules import NucleotideDNAModule
-from bioreason.models.dl.processing_dl import DLProcessor
 from bioreason.dataset.utils import truncate_dna
+from bioreason.dataset.kegg import format_kegg_for_dna_llm
 from bioreason.trainer import DNALLMGRPOTrainer, DNALLMGRPOConfig
-# from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
-# register_evo2_tokenizer()
+from bioreason.models.evo2_tokenizer import register_evo2_tokenizer
+register_evo2_tokenizer()
 
 # Custom TrainerCallback to override the saving mechanism
-from transformers import TrainerCallback, TrainerState, TrainerControl
+from transformers import TrainerCallback
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
 
 
@@ -88,73 +69,15 @@ class SaveWithPyTorchCallback(TrainerCallback):
         return control
 
 def get_kegg_questions(truncate_dna_per_side: int = 0) -> Dataset:
-    data = load_dataset('wanglab/kegg', 'default') # type: ignore
-    num_dna_sequences = 2
+    data = load_dataset('wanglab/kegg', 'default')
 
     # Apply truncation if specified
     if truncate_dna_per_side > 0:
         data = data.map(truncate_dna, fn_kwargs={"truncate_dna_per_side": truncate_dna_per_side})
-
-    data = data.map(lambda x: { # type: ignore
-        'prompt': [
-     
-            {
-                'role': 'user',
-                'content': [
-                    *({'type': 'dna', 'text': None} for _ in range(num_dna_sequences)),
-                    {'type': 'text', 'text': x['question']},
-                ],
-            },
-        ],
-        'dna_sequences': [x['reference_sequence'], x['variant_sequence']],
-        'answer': x['answer'],
-    })  # type: ignore
+    
+    data = data.map(format_kegg_for_dna_llm, fn_kwargs={"is_sft": False})
 
     return data
-
-def extract_xml_answer(text: str) -> str:
-    answer = text.split("</think>")[-1]
-    return answer.strip()
-
-# Reward functions
-def correctness_reward_func(prompts, completions, answer, **kwargs) -> List[float]:
-    responses = [completion[0]['content'] for completion in completions]
-    q = prompts[0][-1]['content']
-    extracted_responses = [extract_xml_answer(r) for r in responses]
-    # extracted_responses = [r.lower().replace("answer:", "").strip() for r in extracted_responses]
-    print('-'*20, f"Question:\n{q}", f"\nAnswer:\n{answer[0]}", f"\nResponse:\n{responses[0]}", f"\nExtracted:\n{extracted_responses[0]}")
-    return [2.0 if a.lower() in r.lower() else 0.0 for r, a in zip(extracted_responses, answer)]
-
-def concise_reward_func(completions, **kwargs) -> List[float]:
-    responses = [completion[0]['content'] for completion in completions]
-    extracted_responses = [extract_xml_answer(r) for r in responses]
-    return [0.5 if len(r.split(' ')) <= 10 else 0.0 for r in extracted_responses]
-
-def strict_format_reward_func(completions, **kwargs) -> List[float]:
-    """Reward function that checks if the completion has a specific format."""
-    pattern = r"^<think>\n.*?\n</think>\n.*?\n$"
-    responses = [completion[0]["content"] for completion in completions]
-    matches = [re.match(pattern, r) for r in responses]
-    return [0.5 if match else 0.0 for match in matches]
-
-def soft_format_reward_func(completions, **kwargs) -> List[float]:
-    """Reward function that checks if the completion has a specific format."""
-    pattern = r"<think>.*?</think>\s*.*?"
-    responses = [completion[0]["content"] for completion in completions]
-    matches = [re.match(pattern, r) for r in responses]
-    return [0.5 if match else 0.0 for match in matches]
-
-def count_xml(text) -> float:
-    count = 0.0
-    if text.count("<think>\n") == 1:
-        count += 0.125
-    if text.count("\n</think>\n") == 1:
-        count += 0.125
-    return count
-
-def xmlcount_reward_func(completions, **kwargs) -> List[float]:
-    contents = [completion[0]["content"] for completion in completions]
-    return [count_xml(c) for c in contents]
 
 # Format into conversation
 @dataclass
@@ -206,11 +129,11 @@ class GRPOScriptArguments(ScriptArguments):
     )
 
 reward_funcs_registry = {
-    "xmlcount": xmlcount_reward_func,
-    "soft_format": soft_format_reward_func,
-    "strict_format": strict_format_reward_func,
-    "concise": concise_reward_func,
-    "correctness": correctness_reward_func,
+    "xmlcount": NucleotideDNAModule.xmlcount_reward_func,
+    "soft_format": NucleotideDNAModule.soft_format_reward_func,
+    "strict_format": NucleotideDNAModule.strict_format_reward_func,
+    "concise": NucleotideDNAModule.concise_reward_func,
+    "correctness": NucleotideDNAModule.correctness_reward_func,
 }
 
 def get_vlm_module(text_model_name):
@@ -224,7 +147,7 @@ def _prep_for_training(
     training_args,
     dna_model_finetune: bool = False,
     dna_projection_finetune: bool = True
-    ) -> LoraConfig:
+    ) -> Optional[LoraConfig]:
     """
     Load and configure the ProteinLLMModel for training.
     Since ProteinLLMModel starts everything in .eval() mode with frozen parameters,
@@ -271,10 +194,9 @@ def _prep_for_training(
         for param in model.text_model.parameters():
             param.requires_grad = True
         return None
-    
     else:
         # Text model: setup LoRA and set to train mode
-        target_modules = _get_target_modules(model)
+        target_modules = get_target_modules(model)
 
         lora_config = LoraConfig(
             r=training_args.lora_r,
@@ -294,16 +216,8 @@ def _prep_for_training(
 
 
 def main(script_args, training_args, model_args):
-    print(training_args.output_dir)
-    #pl.seed_everything(args.seed)
-    # os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     torch.cuda.empty_cache()
     torch.set_float32_matmul_precision("medium")
-
-    # Initialize model
-    # Load tokenizer for target text
-    # tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path)
-    # tokenizer.pad_token = tokenizer.eos_token
 
     # Load model
     model = DNALLMModel(
@@ -317,15 +231,11 @@ def main(script_args, training_args, model_args):
         dna_is_evo2=model_args.dna_is_evo2,
         dna_embedding_layer=model_args.dna_embedding_layer,
         device="cuda",
-    )
-    
-        
-    #move the model to GPU
-    model = model.to("cuda")
+    ).to("cuda")
 
     model.text_model.config.use_cache = False
 
-    # load checkpoint
+    # Load checkpoint
     if model_args.sft_checkpoint is not None:
         training_args.vllm_ckpt = model_args.sft_checkpoint
         print(f"Loading SFT checkpoint from {model_args.sft_checkpoint}")
@@ -369,12 +279,12 @@ def main(script_args, training_args, model_args):
                 model_args.sft_checkpoint, trust_remote_code=True
             )
             
-            #use hf from_pretrained
+            # Use hf from_pretrained
             model.text_model = AutoModelForCausalLM.from_pretrained(
                 model_args.sft_checkpoint, trust_remote_code=True
             )
             print(f"CALLING FIRST PREP_FOR_TRAINING with dna_model_finetune: {getattr(model_args, 'dna_model_finetune', False)}, dna_projection_finetune: {getattr(model_args, 'dna_projection_finetune', False)}")
-            lora_config = _prep_for_training(
+            _ = _prep_for_training(
                 model,
                 model_args,  # must contain lora_r, lora_alpha, lora_dropout
                 dna_model_finetune = getattr(model_args, "dna_model_finetune", False),
@@ -479,7 +389,7 @@ def main(script_args, training_args, model_args):
                 
                 # Now prepare for LoRA training
                 print(f"CALLING THIRD PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
-                _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
+                _ = _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
                                                     go_model_finetune=getattr(model_args, "go_model_finetune", False), 
                                                     protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
                                                     go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
@@ -487,7 +397,7 @@ def main(script_args, training_args, model_args):
     else:
         # No checkpoint, just prepare for training
         print(f"CALLING FOURTH PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
-        _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
+        _ = _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
                                                     go_model_finetune=getattr(model_args, "go_model_finetune", False), 
                                                     protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
                                                     go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
@@ -511,7 +421,6 @@ def main(script_args, training_args, model_args):
 
     vlm_module_cls = get_vlm_module(model_args.text_model_name)
 
-    # TODO: Make rewards come from the vlm_module_cls
     reward_funcs = [reward_funcs_registry[func] for func in script_args.reward_funcs]
     
     print("reward_funcs:", reward_funcs)
@@ -593,8 +502,3 @@ if __name__ == "__main__":
     training_args.vllm_server_base_url = os.environ.get("VLLM_BASE_URL")
 
     main(script_args, training_args, model_args)
-    
-    # parser.add_argument("--wandb_project", type=str, default="protein-text-finetune")
-    # parser.add_argument("--wandb_entity", type=str, default="adibvafa")
-
-    # args = parser.parse_args()

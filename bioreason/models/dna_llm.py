@@ -17,7 +17,7 @@ from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokeniz
 
 register_evo2_tokenizer()
 
-def _get_target_modules(model):
+def get_target_modules(model):
     # Apply LoRA to all linear layers in the text model
     target_modules = []
 

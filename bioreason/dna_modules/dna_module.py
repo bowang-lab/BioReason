@@ -5,14 +5,6 @@ import torch
 class DNABaseModule(ABC):
     def __init__(self):
         super().__init__()
-    
-    @abstractmethod
-    def get_dnallm_key(self):
-        pass
-
-    @abstractmethod
-    def get_model_class(self, model_id: str, model_init_kwargs: dict):
-        pass
 
     def is_embeds_input(self):
         return False

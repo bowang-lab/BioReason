@@ -285,11 +285,11 @@ class DNALLMModel(nn.Module):
 
         batch_size = input_ids.shape[0]
 
-        # 1) Get text token embeddings locally
+        # Get text token embeddings locally
         input_ids = input_ids.to(self.device)
         text_inputs_embeds = self._embedding_layer(input_ids)  # (B, T, H)
 
-        # 2) Inject DNA embeddings where <|dna_pad|> appears
+        # Inject DNA embeddings where <|dna_pad|> appears
         if dna_tokenized is not None and batch_idx_map is not None:
             dna_tokenized = {k: v.to(self.device) for k, v in dna_tokenized.items()}
             batch_dna_embeds = self.process_dna_embeddings(dna_tokenized, batch_idx_map, batch_size)
@@ -308,7 +308,7 @@ class DNALLMModel(nn.Module):
             dna_embeds_flat = dna_embeds_flat.to(dtype=text_inputs_embeds.dtype, device=text_inputs_embeds.device)
             text_inputs_embeds[mask] = dna_embeds_flat
 
-        # 3) Build vLLM SamplingParams
+        # Build vLLM SamplingParams
         sampling_params = SamplingParams(
             temperature=generation_kwargs.get("temperature", 0.7),
             top_p=generation_kwargs.get("top_p", 0.9),
@@ -316,13 +316,13 @@ class DNALLMModel(nn.Module):
             stop=generation_kwargs.get("stop", ["<|im_end|>"]),
         )
 
-        # 4) Construct per-sample requests with prompt_embeds
+        # Construct per-sample requests with prompt_embeds
         requests = [{"prompt_embeds": text_inputs_embeds[i]} for i in range(batch_size)]
 
-        # 5) Generate
+        # Generate
         vllm_outputs = self.text_model.generate(requests, sampling_params=sampling_params)
 
-        # 6) Collect strings
+        # Collect strings
         return [out.outputs[0].text for out in vllm_outputs]
 
     def load_custom_components(self, llm_dir: str) -> None:
