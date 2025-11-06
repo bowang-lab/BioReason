@@ -613,7 +613,8 @@ class DNALLMGRPOTrainer(Trainer):
             data_collator = self._get_collator_with_removed_columns(data_collator, description="training")
 
         dataloader_params = {
-            "batch_size": self._train_batch_size * self.args.steps_per_generation,  # < this is the change
+            #"batch_size": self._train_batch_size * self.args.steps_per_generation,  # < this is the change
+            "batch_size": self._train_batch_size,
             "collate_fn": data_collator,
             "num_workers": self.args.dataloader_num_workers,
             "pin_memory": self.args.dataloader_pin_memory,
@@ -762,6 +763,7 @@ class DNALLMGRPOTrainer(Trainer):
                     if batch_idx_map:
                         # Get indices of DNA sequences that belong to this batch slice
                         dna_seq_indices = [i for i, batch_idx in enumerate(batch_idx_map) if start <= batch_idx < end]
+
                         # Slice the DNA tokenized tensors
                         sliced_multimodal_inputs[k] = {
                             'input_ids': v['input_ids'][dna_seq_indices] if len(dna_seq_indices) > 0 else v['input_ids'][:0],
@@ -777,6 +779,8 @@ class DNALLMGRPOTrainer(Trainer):
                     # For regular tensors, slice by batch dimension
                     sliced_multimodal_inputs[k] = v[start:end] if isinstance(v, torch.Tensor) else v
             
+            #breakpoint()
+
             logps, entropies = self._compute_logps_single_batch(
                 model,
                 input_ids[start:end],
@@ -788,7 +792,7 @@ class DNALLMGRPOTrainer(Trainer):
             all_logps.append(logps)
             if compute_entropy:
                 all_entropies.append(entropies)
-
+        
         logps = torch.cat(all_logps, dim=0)
         entropies = torch.cat(all_entropies, dim=0) if compute_entropy else None
         return logps, entropies
@@ -929,6 +933,7 @@ class DNALLMGRPOTrainer(Trainer):
                 batch_idx_map = generation_batch.pop("batch_idx_map", None)
                 multimodal_inputs = generation_batch.pop("multimodal_inputs", None)
                 
+                #breakpoint()
                 # Shuffle the main batch and track the permutation
                 batch_size = len(generation_batch["advantages"])
                 permutation = list(range(batch_size))
@@ -1473,6 +1478,9 @@ class DNALLMGRPOTrainer(Trainer):
         
         return output
 
+    def input_ids_debugger(self, input_ids):
+        return [(lambda t,tar=151670:(lambda m,b:(b[1:]-b[:-1])[m[b[:-1]]])((t.flatten()==tar),torch.cat((torch.tensor([0],device=t.device),(((t.flatten()==tar)[1:]^(t.flatten()==tar)[:-1]).nonzero().flatten()+1),torch.tensor([t.numel()],device=t.device)))))(tokens).tolist() for tokens in input_ids]
+
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
@@ -1490,6 +1498,11 @@ class DNALLMGRPOTrainer(Trainer):
         
         # Get the current policy's log probabilities
         logits_to_keep = completion_ids.size(1)  # number of completion tokens
+        # print('n_dna_tokens', multimodal_inputs['dna_tokenized']['attention_mask'].sum(dim=1), 'n_dna_pad', (input_ids == 151670).sum(dim=1), 'n_dna_pad_detail', self.input_ids_debugger(input_ids))
+        # print('total dna tokens', multimodal_inputs['dna_tokenized']['attention_mask'].sum(), 'total dna pad', (input_ids == 151670).sum())
+        # print('batch_idx_map', multimodal_inputs['batch_idx_map'])
+        # print('input ids shape', input_ids.shape, 'attention mask shape', multimodal_inputs['dna_tokenized']['attention_mask'].shape)
+        #breakpoint()
         per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep, **multimodal_inputs)
         # per_token_logps already only contains completion token logps due to logits_to_keep parameter
 

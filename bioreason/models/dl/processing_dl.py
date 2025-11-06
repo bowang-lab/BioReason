@@ -1,10 +1,7 @@
 from typing import List, Optional, Union, Dict, Any, Tuple
 
 import torch
-from torch import nn
-import torch.nn.functional as F
 
-from transformers import AutoTokenizer
 from transformers.processing_utils import (
     CommonKwargs,
     ProcessingKwargs,
@@ -13,7 +10,6 @@ from transformers.processing_utils import (
 )
 from transformers.feature_extraction_utils import BatchFeature
 from transformers.tokenization_utils_base import PreTokenizedInput, TextInput
-from transformers.utils import logging
 
 from bioreason.utils.dna_utils import DNAInput
 
@@ -196,8 +192,8 @@ class DLProcessor(ProcessorMixin):
                     index += 1
                 text[i] = text[i].replace("<|placeholder|>", self.dna_token)
             
-            
-            
+            #print('total n_dna_tokens', (dna_processing_result["dna_tokenized"]['attention_mask'] == 1).sum().item())
+            #breakpoint()
             # Add batch info to the output
             dna_inputs = {
                 # "batch_dna_sequences": batch_dna_sequences,

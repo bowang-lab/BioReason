@@ -276,39 +276,19 @@ class DNALLMModel(nn.Module):
         text_inputs_embeds = self.text_model.get_input_embeddings()(input_ids)
 
         if dna_tokenized is not None and batch_idx_map:
+            # Process dna sequences to get embeddings
             batch_dna_embeds = self.process_dna_embeddings(dna_tokenized, batch_idx_map, batch_size)
 
             mask = input_ids == self.dna_token_id
-
-            n_dna_tokens = mask.sum().item()
             dna_embeds_flat = torch.cat(batch_dna_embeds, dim=0)
-            n_dna_features = dna_embeds_flat.shape[0]
-            
-            if n_dna_features != n_dna_tokens:
-                # TODO: Fix this
-                # raise ValueError(
-                #     f"DNA features and DNA tokens do not match: features {n_dna_features}, tokens: {n_dna_tokens}"
-                # )
-                # Detailed error message for debugging
-                print(f"DEBUG: Batch size: {batch_size}")
-                print(f"DEBUG: batch_idx_map: {batch_idx_map}")
-                print(f"DEBUG: dna_tokenized shapes: {[(k, v.shape if hasattr(v, 'shape') else len(v)) for k, v in dna_tokenized.items()]}")
-                print(f"DEBUG: batch_dna_embeds lengths: {[emb.shape[0] for emb in batch_dna_embeds]}")
-                print(f"DEBUG: DNA tokens per sample: {[mask[i].sum().item() for i in range(batch_size)]}")
-                print(f"DEBUG: input_ids shape: {input_ids.shape}")
-                
-                # Try to fix by padding or truncating
-                if n_dna_features < n_dna_tokens:
-                    # Too many tokens, not enough features - pad features
-                    print(f"WARNING: Padding DNA features from {n_dna_features} to {n_dna_tokens}")
-                    padding = torch.zeros(n_dna_tokens - n_dna_features, dna_embeds_flat.shape[1], 
-                                        dtype=dna_embeds_flat.dtype, device=dna_embeds_flat.device)
-                    dna_embeds_flat = torch.cat([dna_embeds_flat, padding], dim=0)
-                else:
-                    # Too many features, not enough tokens - truncate features
-                    print(f"WARNING: Truncating DNA features from {n_dna_features} to {n_dna_tokens}")
-                    dna_embeds_flat = dna_embeds_flat[:n_dna_tokens]
 
+            # Count number of tokens
+            n_dna_tokens = mask.sum().item()
+            #n_dna_features = dna_embeds_flat.shape[0]
+            n_dna_features = sum(r.shape[0] for r in batch_dna_embeds)
+
+            #print("n_dna_tokens:", n_dna_tokens, "n_dna_features:", n_dna_features)
+            #if n_dna_features != n_dna_tokens: breakpoint()
             # Ensure DNA embeddings have the same dtype and device as the text embeddings
             dna_embeds_flat = dna_embeds_flat.to(dtype=text_inputs_embeds.dtype, device=text_inputs_embeds.device)
             text_inputs_embeds[mask] = dna_embeds_flat
@@ -423,31 +403,7 @@ class DNALLMModel(nn.Module):
             batch_dna_embeds = self.process_dna_embeddings(dna_tokenized, batch_idx_map, batch_size)
 
             mask = input_ids == self.dna_token_id
-
-            n_dna_tokens = mask.sum().item()
             dna_embeds_flat = torch.cat(batch_dna_embeds, dim=0)
-            n_dna_features = dna_embeds_flat.shape[0]
-
-            if n_dna_features != n_dna_tokens:
-                # Detailed error message for debugging
-                print(f"DEBUG [get_prompt_embeddings]: Batch size: {batch_size}")
-                print(f"DEBUG [get_prompt_embeddings]: batch_idx_map: {batch_idx_map}")
-                print(f"DEBUG [get_prompt_embeddings]: dna_tokenized shapes: {[(k, v.shape if hasattr(v, 'shape') else len(v)) for k, v in dna_tokenized.items()]}")
-                print(f"DEBUG [get_prompt_embeddings]: batch_dna_embeds lengths: {[emb.shape[0] for emb in batch_dna_embeds]}")
-                print(f"DEBUG [get_prompt_embeddings]: DNA tokens per sample: {[mask[i].sum().item() for i in range(batch_size)]}")
-                print(f"DEBUG [get_prompt_embeddings]: input_ids shape: {input_ids.shape}")
-                
-                # Try to fix by padding or truncating
-                if n_dna_features < n_dna_tokens:
-                    # Too many tokens, not enough features - pad features
-                    print(f"WARNING [get_prompt_embeddings]: Padding DNA features from {n_dna_features} to {n_dna_tokens}")
-                    padding = torch.zeros(n_dna_tokens - n_dna_features, dna_embeds_flat.shape[1], 
-                                        dtype=dna_embeds_flat.dtype, device=dna_embeds_flat.device)
-                    dna_embeds_flat = torch.cat([dna_embeds_flat, padding], dim=0)
-                else:
-                    # Too many features, not enough tokens - truncate features
-                    print(f"WARNING [get_prompt_embeddings]: Truncating DNA features from {n_dna_features} to {n_dna_tokens}")
-                    dna_embeds_flat = dna_embeds_flat[:n_dna_tokens]
 
             # Ensure DNA embeddings have the same dtype and device as the text embeddings
             dna_embeds_flat = dna_embeds_flat.to(dtype=text_inputs_embeds.dtype, device=text_inputs_embeds.device)
