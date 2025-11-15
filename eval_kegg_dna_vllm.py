@@ -12,6 +12,7 @@ from typing import Dict, List, Any
 from tqdm import tqdm
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
 
 # Add the bioreason package to the path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -94,6 +95,8 @@ def initialize_model(
         raise FileNotFoundError(f"Checkpoint directory not found: {ckpt_dir}")
     
     # Initialize the model
+    ckpt_dir = str(Path(ckpt_dir).expanduser())
+
     model = DNALLMModel(
         ckpt_dir=ckpt_dir,
         text_model_name=text_model_name,

@@ -613,8 +613,8 @@ class DNALLMGRPOTrainer(Trainer):
             data_collator = self._get_collator_with_removed_columns(data_collator, description="training")
 
         dataloader_params = {
-            #"batch_size": self._train_batch_size * self.args.steps_per_generation,  # < this is the change
-            "batch_size": self._train_batch_size,
+            "batch_size": self._train_batch_size * self.args.steps_per_generation,  # < this is the change
+            #"batch_size": self._train_batch_size,
             "collate_fn": data_collator,
             "num_workers": self.args.dataloader_num_workers,
             "pin_memory": self.args.dataloader_pin_memory,
@@ -751,7 +751,7 @@ class DNALLMGRPOTrainer(Trainer):
         all_logps = []
         all_entropies = []
         for start in range(0, input_ids.size(0), batch_size):
-            end = start + batch_size
+            end = start + batch_size * 2
             
             # Handle DNA-specific inputs separately (they're indexed by sequence, not batch)
             sliced_multimodal_inputs = {}
@@ -961,15 +961,40 @@ class DNALLMGRPOTrainer(Trainer):
                 # Split the batch (without DNA fields and multimodal_inputs)
                 generation_batches = split_tensor_dict(generation_batch, self.args.steps_per_generation)
                 
-                # Add DNA fields and multimodal_inputs back to each split batch
+                # determine which DNA below to each generation_batch
                 if dna_tokenized is not None or batch_idx_map is not None or multimodal_inputs is not None:
-                    for batch in generation_batches:
-                        if dna_tokenized is not None:
-                            batch["dna_tokenized"] = dna_tokenized
-                        if batch_idx_map is not None:
-                            batch["batch_idx_map"] = batch_idx_map
+                    batch_idx_map_halved = torch.tensor(batch_idx_map[::2])  # Take every second index for the DNA sequences
+                    inv_map_partial = torch.argsort(batch_idx_map_halved)
+                    inv_map = torch.stack((2*inv_map_partial, 2*inv_map_partial+1), dim=1).reshape(-1)
+                    chunk_size = 2 * batch_size // self.args.steps_per_generation # 2 dna per
+
+                    dna_input_ids = dna_tokenized['input_ids'][inv_map]
+                    dna_attention_mask = dna_tokenized['attention_mask'][inv_map]
+                    
+
+                    # For each generation batch, find the unique batch indices it contains
+                    for i, batch in enumerate(generation_batches):
+                        batch["dna_tokenized"] = {
+                            'input_ids': dna_input_ids[i * chunk_size:(i + 1) * chunk_size],
+                            'attention_mask': dna_attention_mask[i * chunk_size:(i + 1) * chunk_size],
+                        }
+                        # give ints from i * chunk_size to i * (chunk_size + 1)
+                        batch["batch_idx_map"] = torch.arange(0, chunk_size).tolist()
                         if multimodal_inputs is not None:
-                            batch["multimodal_inputs"] = multimodal_inputs
+                            batch["multimodal_inputs"] = {
+                                'dna_tokenized': batch["dna_tokenized"],
+                                'batch_idx_map': batch["batch_idx_map"],
+                            }
+
+                # Add DNA fields and multimodal_inputs back to each split batch
+                # if dna_tokenized is not None or batch_idx_map is not None or multimodal_inputs is not None:
+                #     for batch in generation_batches:
+                #         if dna_tokenized is not None:
+                #             batch["dna_tokenized"] = dna_tokenized
+                #         if batch_idx_map is not None:
+                #             batch["batch_idx_map"] = batch_idx_map
+                #         if multimodal_inputs is not None:
+                #             batch["multimodal_inputs"] = multimodal_inputs
                 # CRITICAL: Detach all tensors in buffered inputs to prevent gradient accumulation across steps
                 self._buffered_inputs = []
                 for batch in generation_batches:
@@ -981,6 +1006,7 @@ class DNALLMGRPOTrainer(Trainer):
                             detached_batch[key] = value
                     self._buffered_inputs.append(detached_batch)
             inputs = self._buffered_inputs[self._step % self.args.steps_per_generation]
+            #if inputs['prompt_ids'].shape[0] == 8: breakpoint()
             self._step += 1
         else:
             # In evaluation, there is neither batch grouping for generation, nor multiple iterations, hence
@@ -1273,7 +1299,8 @@ class DNALLMGRPOTrainer(Trainer):
 
         logits_to_keep = completion_ids.size(1)  # we only need to compute the logits for the completion tokens
         mode = "train" if self.model.training else "eval"
-        batch_size = self.args.per_device_train_batch_size if mode == "train" else self.args.per_device_eval_batch_size
+        # batch_size = self.args.per_device_train_batch_size if mode == "train" else self.args.per_device_eval_batch_size
+        batch_size = (self.args.per_device_train_batch_size * self.args.steps_per_generation) if mode == "train" else self.args.per_device_eval_batch_size
 
 
         with torch.no_grad():
@@ -1498,11 +1525,12 @@ class DNALLMGRPOTrainer(Trainer):
         
         # Get the current policy's log probabilities
         logits_to_keep = completion_ids.size(1)  # number of completion tokens
-        # print('n_dna_tokens', multimodal_inputs['dna_tokenized']['attention_mask'].sum(dim=1), 'n_dna_pad', (input_ids == 151670).sum(dim=1), 'n_dna_pad_detail', self.input_ids_debugger(input_ids))
-        # print('total dna tokens', multimodal_inputs['dna_tokenized']['attention_mask'].sum(), 'total dna pad', (input_ids == 151670).sum())
-        # print('batch_idx_map', multimodal_inputs['batch_idx_map'])
-        # print('input ids shape', input_ids.shape, 'attention mask shape', multimodal_inputs['dna_tokenized']['attention_mask'].shape)
-        #breakpoint()
+        #print('n_dna_tokens', multimodal_inputs['dna_tokenized']['attention_mask'].sum(dim=1), 'n_dna_pad', (input_ids == 151670).sum(dim=1), 'n_dna_pad_detail', self.input_ids_debugger(input_ids))
+        #print('total dna tokens', multimodal_inputs['dna_tokenized']['attention_mask'].sum(), 'total dna pad', (input_ids == 151670).sum())
+        #print('batch_idx_map', multimodal_inputs['batch_idx_map'])
+        #print('input ids shape', input_ids.shape, 'attention mask shape', multimodal_inputs['dna_tokenized']['attention_mask'].shape)
+        #print('mode', "train" if self.model.training else "eval")
+        #if input_ids.shape[0] == 8: breakpoint()
         per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep, **multimodal_inputs)
         # per_token_logps already only contains completion token logps due to logits_to_keep parameter
 

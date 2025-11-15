@@ -205,7 +205,7 @@ class DNALLMModel(nn.Module):
                     return [torch.zeros((0, self.text_hidden_size), 
                                        device=self.dna_projection.weight.device,
                                        dtype=self.dna_projection.weight.dtype) 
-                           for _ in range(batch_size)]
+                           for _ in range(2 * batch_size)]
                     
             else:  # Standard HuggingFace model
                 # Use existing code path for HF models
@@ -222,7 +222,8 @@ class DNALLMModel(nn.Module):
         projected_states = self.dna_projection(hidden_states)
 
         # Group embeddings by batch item
-        result = [[] for _ in range(batch_size)]
+        result = [[] for _ in range(2 * batch_size)]
+        #breakpoint()
 
         # For each sequence, get its embeddings and add to appropriate batch result
         for seq_idx, batch_idx in enumerate(batch_idx_map):
@@ -232,7 +233,7 @@ class DNALLMModel(nn.Module):
             result[batch_idx].append(seq_embedding)
 
         # Concatenate embeddings for each batch item
-        for i in range(batch_size):
+        for i in range(2 * batch_size):
             if result[i]:
                 result[i] = torch.cat(result[i], dim=0)
             else:
@@ -277,6 +278,7 @@ class DNALLMModel(nn.Module):
 
         if dna_tokenized is not None and batch_idx_map:
             # Process dna sequences to get embeddings
+            #breakpoint()
             batch_dna_embeds = self.process_dna_embeddings(dna_tokenized, batch_idx_map, batch_size)
 
             mask = input_ids == self.dna_token_id
