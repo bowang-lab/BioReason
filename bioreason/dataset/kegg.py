@@ -1,201 +1,41 @@
-import json
-import os
-import random
-import sys
 import torch
-from torch.utils.data import Dataset, DataLoader
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
-from bioreason.dataset.utils import torch_to_hf_dataset
+from functools import partial
+
 from bioreason.models.dl.processing_dl import DLProcessor
-from trl.data_utils import maybe_apply_chat_template
+from bioreason.dna_modules.nucleotide_module import NucleotideDNAModule
 
 
-class KEGGDataset(Dataset):
-    """Dataset for KEGG data."""
-
-    def __init__(self, data_dir: str):
-        """
-        Initialize the dataset by loading all JSON files from the given directory.
-
-        Args:
-            data_dir: Path to the directory containing JSON files
-        """
-        self.data_dir = data_dir
-        self.data = []
-
-        # Load all JSON files
-        json_files = sorted([f for f in os.listdir(data_dir) if f.endswith(".json")])
-
-        # Process each file
-        for filename in json_files:
-            file_path = os.path.join(data_dir, filename)
-            kegg_id = filename.split("_")[1]
-
-            with open(file_path, "r", encoding="utf-8") as f:
-                item = json.load(f)
-                item["kegg_id"] = kegg_id
-                processed_item = self._process_item(item)
-                self.data.append(processed_item)
-
-    def _process_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process a single data item to format fields as required.
-
-        Args:
-            item: Original data item from JSON
-
-        Returns:
-            Processed data item
-        """
-        # Extract question as is
-        question = item.get("question", "")
-
-        # Convert answer to lowercase and strip whitespace
-        answer = item.get("answer", "").lower().strip()
-
-        # Combine reasoning steps into a single paragraph with newlines
-        reasoning_steps = item.get("reasoning", {}).get("reasoning_steps", [])
-        reasoning = "\n".join(reasoning_steps)
-
-        # Convert sequences to uppercase and strip whitespace
-        reference_sequence = item.get("reference_sequence", "").upper().strip()
-        variant_sequence = item.get("variant_sequence", "").upper().strip()
-
-        return {
-            "question": question,
-            "answer": answer,
-            "reasoning": reasoning,
-            "reference_sequence": reference_sequence,
-            "variant_sequence": variant_sequence,
-        }
-
-    def __len__(self) -> int:
-        """Return the number of items in the dataset."""
-        return len(self.data)
-
-    def __getitem__(self, idx: int) -> Dict[str, Any]:
-        """Return a specific item from the dataset."""
-        return self.data[idx]
-
-
-def split_kegg_dataset(
-    dataset: KEGGDataset,
-    train_ratio: float = 0.8,
-    val_ratio: float = 0.1,
-    test_ratio: float = 0.1,
-    seed: int = 42,
-) -> Tuple[KEGGDataset, KEGGDataset, KEGGDataset]:
-    """
-    Split a KEGG dataset into train, validation, and test sets.
-
-    Args:
-        dataset: The dataset to split
-        train_ratio: Proportion of data for training
-        val_ratio: Proportion of data for validation
-        test_ratio: Proportion of data for testing
-        batch_size: Batch size for the dataloaders
-        seed: Random seed for reproducibility
-
-    Returns:
-        Tuple of (train_dataset, val_dataset, test_dataset)
-    """
-    # Calculate the size of each split
-    dataset_size = len(dataset)
-    train_size = int(train_ratio * dataset_size)
-    val_size = int(val_ratio * dataset_size)
-    test_size = dataset_size - train_size - val_size
-    assert train_ratio + val_ratio + test_ratio == 1.0, "Ratios must sum to 1"
-
-    # Set the random seed
-    torch.manual_seed(seed)
-    random.seed(seed)
-
-    # Split the dataset
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
-        dataset, [train_size, val_size, test_size]
-    )
-
-    return train_dataset, val_dataset, test_dataset
-
-
-def create_kegg_dataloader(
-    data_dir: str,
-    batch_size: int = 2,
-    shuffle: bool = True,
-    num_workers: int = 2,
-    pin_memory: bool = True,
-) -> DataLoader:
-    """
-    Create a DataLoader for the KEGG dataset.
-
-    Args:
-        data_dir: Path to the directory containing JSON files
-        batch_size: Batch size for the dataloader
-        shuffle: Whether to shuffle the data
-        num_workers: Number of worker processes for loading data
-        pin_memory: Whether to pin memory for faster data transfer
-
-    Returns:
-        DataLoader for the KEGG dataset
-    """
-    dataset = KEGGDataset(data_dir)
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=shuffle,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
-    )
-
-
-def get_format_kegg_function(model_name: str) -> Any:
+def get_format_kegg_function(model_name: str, is_sft: bool=True) -> Any:
     """
     Get the appropriate format function for a given model name.
     """
     if model_name.lower() == "llm":
-        return format_kegg_for_llm
+        return partial(format_kegg_for_llm, is_sft=is_sft)
     elif model_name.lower() == "dna-llm":
-        return format_kegg_for_dna_llm
+        return partial(format_kegg_for_dna_llm, is_sft=is_sft)
     else:
         raise ValueError(f"Unsupported model name: {model_name}")
-
-
-def format_kegg_for_dna_llm(example: Dict[str, Any]) -> Dict[str, Any]:
+    
+def _format_kegg(example: Dict[str, Any], model_name: str, is_sft: bool) -> Dict[str, Any]:
     """
-    Format a KEGG example into the required chat format for DNA-LLM.
+    Format a KEGG example into the required chat format.
     """
-    return {
-        "prompt": [
-            {
-                "role": "user",
-                "content": [
-                    *({"type": "dna", "text": None} for _ in range(2)),
-                    {"type": "text", "text": example["question"].strip()},
-                ],
-            },
-            {
-                "role": "assistant",
-                "reasoning_content": example["reasoning"].strip(),
-                "content": [
-                    {"type": "text", "text": f"Answer: {example['answer'].strip()}"},
-                ],
-            },
-        ],
-        "dna_sequences": [
-            example["reference_sequence"],
-            example["variant_sequence"],
-        ],
-        "answer": example["answer"],
-    }
 
+    if model_name.lower() not in ['llm', 'dna-llm']:
+        raise ValueError(f"Unsupported model name: {model_name}")
 
-def format_kegg_for_llm(example: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Format a KEGG example into the required chat format for LLM.
-    """
-    question = f"Reference sequence: {example['reference_sequence']}\nVariant sequence: {example['variant_sequence']}\nQuestion: {example['question']}"
-    return {
+    if model_name.lower() == 'llm':
+        question = f"Reference sequence: {example['reference_sequence']}\nVariant sequence: {example['variant_sequence']}\nQuestion: {example['question']}"
+        reference_sequence = ""
+        variant_sequence = ""
+    elif model_name.lower() == 'dna-llm':
+        question = example['question']
+        reference_sequence = example['reference_sequence']
+        variant_sequence = example['variant_sequence']
+    
+    item = {
         "prompt": [
             {
                 "role": "user",
@@ -203,22 +43,50 @@ def format_kegg_for_llm(example: Dict[str, Any]) -> Dict[str, Any]:
                     *({"type": "dna", "text": None} for _ in range(2)),
                     {"type": "text", "text": question.strip()},
                 ],
-            },
+            }
+        ],
+        "dna_sequences": [
+            reference_sequence,
+            variant_sequence,
+        ],
+        "answer": example["answer"],
+    }
+
+    if is_sft:
+        item['prompt'].append(
             {
                 "role": "assistant",
                 "reasoning_content": example["reasoning"].strip(),
                 "content": [
                     {"type": "text", "text": f"Answer: {example['answer'].strip()}"},
                 ],
-            },
-        ],
-        "dna_sequences": [
-            "",
-            "",
-        ],
-        "answer": example["answer"],
-    }
+            }
+        )
+    return item
 
+def format_kegg_for_dna_llm(example: Dict[str, Any], is_sft: bool) -> Dict[str, Any]:
+    """
+    Format a KEGG example into the required chat format for DNA-LLM.
+    """
+    return _format_kegg(example, 'dna-llm', is_sft=is_sft)
+
+def format_kegg_for_llm(example: Dict[str, Any], is_sft: bool) -> Dict[str, Any]:
+    """
+    Format a KEGG example into the required chat format for LLM.
+    """
+    return _format_kegg(example, 'llm', is_sft=is_sft)
+    
+
+def _truncate_after_assistant_start(text: str) -> str:
+    """
+    Keep everything up to and including the first '<|im_start|>assistant\n',
+    drop any assistant answer that follows.
+    """
+    marker = "<|im_end|>\n<|im_start|>assistant\n"
+    idx = text.find(marker)
+    if idx != -1:
+        return text[: idx + len(marker)]
+    return text
 
 def qwen_dna_collate_fn(
     examples: List[Dict],
@@ -226,6 +94,7 @@ def qwen_dna_collate_fn(
     max_length_text: int,
     max_length_dna: int,
     return_answer_in_batch: bool = False,
+    truncate_for_generation: bool = True
 ) -> Dict:
     """
     Custom collate function for Qwen DNA models.
@@ -233,9 +102,11 @@ def qwen_dna_collate_fn(
     Creates a batch with proper labels for supervised fine-tuning where only
     the assistant responses contribute to the loss calculation.
     """
-    prompts_text = [
-        maybe_apply_chat_template(example, processor)["prompt"] for example in examples
-    ]
+
+    dna_module = NucleotideDNAModule()
+    # Keep original structured prompts for reward functions
+    original_prompts = [example["prompt"] for example in examples]
+    prompts_text = dna_module.prepare_prompt(processing_class=processor, inputs=examples)
     batch_dna_sequences = [example["dna_sequences"] for example in examples]
 
     batch = processor(
@@ -329,6 +200,60 @@ def qwen_dna_collate_fn(
     # Add answer to batch
     if return_answer_in_batch:
         batch["answer"] = [example["answer"].strip() for example in examples]
+
+    prompts_text = [_truncate_after_assistant_start(p) for p in prompts_text]
+
+    if truncate_for_generation:
+        device = batch["input_ids"].device
+        pad_id = processor.tokenizer.pad_token_id
+        if pad_id is None:
+            # fall back to eos if pad is unset
+            pad_id = processor.tokenizer.eos_token_id
+
+        # composite marker to mirror _truncate_after_assistant_start
+        composite = "<|im_end|>\n<|im_start|>assistant\n"
+        comp_ids = processor.tokenizer.encode(composite, add_special_tokens=False)
+        comp_t = torch.tensor(comp_ids, device=device)
+        comp_len = len(comp_ids)
+
+        B, L = batch["input_ids"].shape
+        keep_lens: List[int] = []
+
+        for i in range(B):
+            ids = batch["input_ids"][i]
+            keep = L  # default: keep all if marker not found
+            # scan for FIRST occurrence to match your text truncation
+            for j in range(0, L - comp_len + 1):
+                if torch.all(ids[j:j+comp_len] == comp_t):
+                    keep = j + comp_len
+                    break
+            keep_lens.append(keep)
+
+        new_max = max(keep_lens) if keep_lens else 0
+
+        # allocate new left-padded tensors
+        new_input_ids = torch.full((B, new_max), pad_id, dtype=batch["input_ids"].dtype, device=device)
+        new_attention = torch.zeros((B, new_max), dtype=batch["attention_mask"].dtype, device=device)
+        new_labels = torch.full((B, new_max), -100, dtype=batch["labels"].dtype, device=device)
+
+        for i, k in enumerate(keep_lens):
+            if k == 0:
+                continue
+            # take the first k tokens (truncate from the RIGHT), then left-pad to new_max
+            src_ids = batch["input_ids"][i, :k]
+            src_attn = batch["attention_mask"][i, :k]
+            src_lbls = batch["labels"][i, :k]
+
+            new_input_ids[i, -k:] = src_ids
+            new_attention[i, -k:] = src_attn
+            new_labels[i, -k:] = src_lbls
+
+        batch["input_ids"] = new_input_ids
+        batch["attention_mask"] = new_attention
+        batch["labels"] = new_labels
+
+    batch["prompt"] = prompts_text
+    batch["original_prompts"] = original_prompts
 
     return batch
 

@@ -14,6 +14,7 @@ wandb/
 *.so
 
 outputs/
+eval_results/
 
 # Distribution / packaging
 .Python
@@ -178,3 +179,8 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+
+.out
+.err
+test_grpo_minimal.sh

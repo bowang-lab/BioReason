@@ -1,9 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import Dict
 from transformers import AutoModelForMaskedLM, AutoTokenizer
-
 
 class SelfAttentionPooling(nn.Module):
     def __init__(self, hidden_size, num_heads=8):

@@ -13,9 +13,31 @@
 # limitations under the License.
 
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from transformers import TrainingArguments
+from transformers.utils import is_accelerate_available
+
+# Import ParallelismConfig to resolve forward references in TrainingArguments
+# This is needed because TrainingArguments uses Optional["ParallelismConfig"] which
+# requires ParallelismConfig to be in the namespace when type hints are resolved
+if is_accelerate_available("1.10.1"):
+    try:
+        from accelerate.parallelism_config import ParallelismConfig
+    except ImportError:
+        # Create a dummy class if import fails
+        class ParallelismConfig:
+            pass
+else:
+    # Create a dummy class for older accelerate versions that don't have ParallelismConfig
+    class ParallelismConfig:
+        pass
+
+# Inject ParallelismConfig into the transformers.training_args module namespace
+# This is required for type hint resolution of TrainingArguments' parallelism_config field
+import transformers.training_args
+if not hasattr(transformers.training_args, 'ParallelismConfig'):
+    transformers.training_args.ParallelismConfig = ParallelismConfig
 
 
 @dataclass
@@ -142,15 +164,53 @@ class DNALLMGRPOConfig(TrainingArguments):
             installed, it prints the sample. If `wandb` logging is enabled, it logs it to `wandb`.
     """
 
+    _VALID_DICT_FIELDS = TrainingArguments._VALID_DICT_FIELDS + ["model_init_kwargs"]
+
+    gradient_checkpointing: bool = field(
+        default=True,
+        metadata={
+            "help": "If True, use gradient checkpointing to save memory at the expense of slower backward pass."
+        },
+    )
+    bf16: Optional[bool] = field(
+        default=True,
+        metadata={
+            "help": "Whether to use bf16 (mixed) precision instead of 32-bit. Requires Ampere or higher NVIDIA "
+            "architecture or Intel XPU or using CPU (use_cpu) or Ascend NPU. If not set, it defaults to `True` if "
+            "`fp16` is not set."
+        },
+    )
+
     # Parameters that control the model and reference model
-    model_init_kwargs: Optional[dict] = field(
+    model_init_kwargs: Optional[Dict[str, Any]] = field(
         default=None,
         metadata={
             "help": "Keyword arguments for `transformers.AutoModelForCausalLM.from_pretrained`, used when the `model` "
             "argument of the `GRPOTrainer` is provided as a string."
         },
     )
+    disable_dropout: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to disable dropout in the model. This is useful for training with a reference model, as "
+            "it prevents the model from generating different logprobs for the same input."
+        },
+    )
 
+    # Core training parameters
+    output_dir: str = field(
+        default=None,
+        metadata={"help": "The output directory where the model predictions and checkpoints will be written."},
+    )
+    run_name: str = field(
+        default="dna-llm-grpo-test",
+        metadata={"help": "An optional descriptor for the run. Notably used for wandb logging."},
+    )
+    deepspeed: Optional[str] = field(
+        default="grpo_trainer_lora_model/ds_config_stage2.json",
+        metadata={"help": "Path to DeepSpeed configuration file."},
+    )
+    
     # Parameters that control the data preprocessing
     # The default value remove_unused_columns is overwritten from the parent class, because in GRPO we usually rely on
     # additional columns to compute the reward
@@ -160,6 +220,50 @@ class DNALLMGRPOConfig(TrainingArguments):
             "help": "Whether to only keep the column 'prompt' in the dataset. If you use a custom reward function "
             "that requires any column other than 'prompts' and 'completions', you should keep this to `False`."
         },
+    )
+    per_device_train_batch_size: int = field(
+        default=8,
+        metadata={"help": "Batch size per GPU/TPU/MPS/NPU core/CPU for training."},
+    )
+    per_device_eval_batch_size: int = field(
+        default=8,
+        metadata={"help": "Batch size per GPU/TPU/MPS/NPU core/CPU for evaluation."},
+    )
+    gradient_accumulation_steps: int = field(
+        default=4,
+        metadata={"help": "Number of updates steps to accumulate before performing a backward/update pass."},
+    )
+    max_steps: int = field(
+        default=1000,
+        metadata={"help": "If set to a positive number, the total number of training steps to perform. Overrides num_train_epochs."},
+    )
+    save_strategy: str = field(
+        default="steps",
+        metadata={"help": "The checkpoint save strategy to use (no, steps, epoch)."},
+    )
+    save_steps: int = field(
+        default=100,
+        metadata={"help": "Save checkpoint every X update steps."},
+    )
+    save_total_limit: int = field(
+        default=2,
+        metadata={"help": "Limit the total amount of checkpoints. Deletes the older checkpoints."},
+    )
+    eval_strategy: str = field(
+        default="no",
+        metadata={"help": "The evaluation strategy to use (no, steps, epoch). Note: GRPO evaluation is not fully supported yet."},
+    )
+    eval_steps: int = field(
+        default=100,
+        metadata={"help": "Run evaluation every X update steps. Only used if eval_strategy != 'no'."},
+    )
+    warmup_ratio: float = field(
+        default=0.03,
+        metadata={"help": "Ratio of total training steps used for a linear warmup from 0 to learning_rate."},
+    )
+    lr_scheduler_type: str = field(
+        default="cosine",
+        metadata={"help": "The scheduler type to use. See transformers.SchedulerType for all possible values."},
     )
     max_prompt_length: Optional[int] = field(
         default=512,
@@ -187,10 +291,25 @@ class DNALLMGRPOConfig(TrainingArguments):
             "is not compatible with vLLM generation."
         },
     )
+    shuffle_dataset: Optional[bool] = field(
+        default=True,
+        metadata={"help": "Whether to shuffle the training dataset."},
+    )
 
     # Parameters that control generation
+    generation_batch_size: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "Batch size to use for generation. If `None`, it defaults to the effective training batch size: "
+            "`per_device_train_batch_size * num_processes * steps_per_generation`."
+        },
+    )
+    steps_per_generation: Optional[int] = field(
+        default=None,
+        metadata={"help": "Number of steps per generation. If `None`, it defaults to `gradient_accumulation_steps`."},
+    )
     temperature: float = field(
-        default=0.6,
+        default=0.7,
         metadata={"help": "Temperature for sampling. The higher the temperature, the more random the completions."},
     )
     top_p: float = field(
@@ -214,12 +333,29 @@ class DNALLMGRPOConfig(TrainingArguments):
             "must be a value between 0.0 and 1.0. Typical values are in the 0.01-0.2 range."
         },
     )
+    generation_kwargs: Optional[Dict[str, Any]] = field(
+        default=None,
+        metadata={
+            "help": "Additional keyword arguments to pass to `GenerationConfig` (if using transformers) or "
+            "`SamplingParams` (if using vLLM) when sampling completions. This can be used to further customize the "
+            "generation behavior, such as setting `suppress_tokens`, `num_beams`, etc. If it contains keys that "
+            "conflict with the other generation parameters (like `min_p`, `top_p`, etc.), they will override them."
+        },
+    )
     repetition_penalty: float = field(
         default=1.0,
         metadata={
             "help": "Float that penalizes new tokens based on whether they appear in the prompt and the generated "
             "text so far. Values > 1.0 encourage the model to use new tokens, while values < 1.0 encourage the model "
             "to repeat tokens."
+        },
+    )
+    use_transformers_paged: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to use the `transformers` paged implementation for generation. If set to `True`, the "
+            "`transformers` paged implementation will be used for generation instead of the default padded "
+            "implementation. This parameter is only effective when `use_vllm` is set to `False`."
         },
     )
     cache_implementation: Optional[str] = field(
@@ -229,11 +365,21 @@ class DNALLMGRPOConfig(TrainingArguments):
 
     # Parameters that control generation acceleration powered by vLLM
     use_vllm: Optional[bool] = field(
-        default=False,
+        default=True,
         metadata={
             "help": "Whether to use vLLM for generating completions. If set to `True`, ensure that a GPU is kept "
             "unused for training, as vLLM will require one for generation. vLLM must be installed "
             "(`pip install vllm`)."
+        },
+    )
+    vllm_mode: str = field(
+        default="colocate",
+        metadata={
+            "help": "Mode to use for vLLM integration when `use_vllm` is set to `True`. Must be one of `'server'` or "
+            "`'colocate'`. `'server'`: The trainer will send generation requests to a separate vLLM server. Make sure "
+            "a TRL vLLM server is running (start with `trl vllm-serve`). `'colocate'`: vLLM will run in the same "
+            "process and share the training GPUs. This avoids the need for a separate server but may cause resource "
+            "contention with training."
         },
     )
     vllm_device: Optional[str] = field(
@@ -245,7 +391,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     vllm_gpu_memory_utilization: float = field(
-        default=0.9,
+        default=0.2,
         metadata={
             "help": "Ratio (between 0 and 1) of GPU memory to reserve for the model weights, activations, and KV "
             "cache on the device dedicated to generation powered by vLLM. Higher values will increase the KV cache "
@@ -261,7 +407,7 @@ class DNALLMGRPOConfig(TrainingArguments):
         },
     )
     vllm_max_model_len: Optional[int] = field(
-        default=None,
+        default=3000,
         metadata={
             "help": "If set, the `max_model_len` to use for vLLM. This could be useful when running with reduced "
             "`vllm_gpu_memory_utilization`, leading to a reduced KV cache size. If not set, vLLM will use the model "
@@ -275,21 +421,78 @@ class DNALLMGRPOConfig(TrainingArguments):
             "the hardware support this feature."
         },
     )
+    vllm_model_impl: str = field(
+        default="vllm",
+        metadata={
+            "help": "Model implementation to use for vLLM. Must be one of `transformers` or `vllm`. `transformers`: "
+            "Use the `transformers` backend for model implementation. `vllm`: Use the `vllm` library for "
+            "model implementation."
+        },
+    )
+    vllm_enable_sleep_mode: bool = field(
+        default=False,
+        metadata={
+            "help": "Whether to enable sleep mode for vLLM. If `True`, vLLM will sleep during the optimization step "
+            "and woken for weight sync and generation."
+        },
+    )
     vllm_guided_decoding_regex: Optional[str] = field(
         default=None,
         metadata={"help": "Regex for vLLM guided decoding. If `None` (default), guided decoding is disabled."},
     )
 
+    # Parameters that control the vLLM server (only used when `vllm_mode` is `"server"`)
+    vllm_server_base_url: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Base URL for the vLLM server (e.g., 'http://localhost:8000'). If provided, `vllm_server_host` "
+            "and `vllm_server_port` are ignored."
+        },
+    )
+    vllm_server_host: str = field(
+        default="0.0.0.0",
+        metadata={"help": "Host of the vLLM server to connect to. Ignored if vllm_server_base_url is provided."},
+    )
+    vllm_server_port: int = field(
+        default=8000,
+        metadata={"help": "Port of the vLLM server to connect to. Ignored if vllm_server_base_url is provided."},
+    )
+    vllm_server_timeout: float = field(
+        default=240.0,
+        metadata={
+            "help": "Total timeout duration in seconds to wait for the vLLM server to be up. If the server is not up "
+            "after the timeout, a `ConnectionError` is raised."
+        },
+    )
+
+     # Parameters that control colocated vLLM execution (only used when `vllm_mode` is `"colocate"`)
+    vllm_gpu_memory_utilization: float = field(
+        default=0.3,
+        metadata={
+            "help": "Control the GPU memory utilization for vLLM. This setting only applies when `vllm_mode` is set "
+            "to `'colocate'`. If you are using `vllm_mode='server'`, this parameter must be passed separately when "
+            "launching the vLLM server via the `--vllm_gpu_memory_utilization` flag."
+        },
+    )
+    vllm_tensor_parallel_size: int = field(
+        default=1,
+        metadata={
+            "help": "Control the tensor parallel size for vLLM. This setting only applies when `vllm_mode` is set "
+            "to `'colocate'`. If you are using `vllm_mode='server'`, this parameter must be passed separately when "
+            "launching the vLLM server via the `--vllm_tensor_parallel_size` flag."
+        },
+    )
+
     # Parameters that control the training
     learning_rate: float = field(
-        default=1e-6,
+        default=1e-5,
         metadata={
             "help": "Initial learning rate for `AdamW` optimizer. The default value replaces that of "
             "`transformers.TrainingArguments`."
         },
     )
     beta: float = field(
-        default=0.04,
+        default=0.0,
         metadata={
             "help": "KL coefficient. If `0.0`, the reference model is not loaded, reducing memory usage and improving "
             "training speed, but may be numerically unstable for long training runs."
@@ -303,6 +506,14 @@ class DNALLMGRPOConfig(TrainingArguments):
         default=0.2,
         metadata={"help": "Epsilon value for clipping."},
     )
+    delta: Optional[float] = field(
+        default=None,
+        metadata={
+            "help": "Enables the upper clipping bound in two-sided GRPO loss when set to a float. If `None` "
+            "(default), standard GRPO clipping is used. Recommended to be greater than `1 + ε` when enabled. This "
+            "method is introduced in the [INTELLECT-2 tech report](https://huggingface.co/papers/2505.07291)."
+        },
+    )
     epsilon_high: Optional[float] = field(
         default=None,
         metadata={
@@ -310,11 +521,60 @@ class DNALLMGRPOConfig(TrainingArguments):
             "lower-bound specified in argument `epsilon`. Paper DAPO recommends `0.28`."
         },
     )
-    reward_weights: Optional[list[float]] = field(
+    importance_sampling_level: str = field(
+        default="token",
+        metadata={
+            "help": "Controls whether importance sampling ratios are computed at the `'token'` or `'sequence'` level. "
+            "`'token'` keeps the raw per-token log-probability ratios (one weight per token).  `'sequence'` averages "
+            "the log-probability ratios across valid tokens to produce a single ratio per sequence. The GSPO paper "
+            "shows that sequence-level sampling often yields more stable training and better alignment with "
+            "sequence-level rewards."
+        },
+    )
+    reward_weights: Optional[List[float]] = field(
         default=None,
         metadata={
             "help": "Weights for each reward function. Must match the number of reward functions. If `None`, all "
             "rewards are weighted equally with weight `1.0`."
+        },
+    )
+    scale_rewards: str = field(
+        default="group",
+        metadata={
+            "help": "Specifies the scaling strategy for rewards. Supported values are: "
+            "`True` or `group'` (default): rewards are scaled by the standard deviation within each group, ensuring "
+            "unit variance within a group. "
+            "`'batch'`: rewards are scaled by the standard deviation across the entire batch, as recommended in the "
+            "PPO Lite paper. "
+            "`False` or `'none'`: no scaling is applied. The Dr. GRPO paper recommends not scaling rewards, as "
+            "scaling by the standard deviation introduces a question-level difficulty bias."
+        },
+    )
+    loss_type: str = field(
+        default="dr_grpo",
+        metadata={
+            "help": "Specifies the loss formulation to use. Supported values are 'grpo', 'dapo', 'bnpo', and "
+            "'dr_grpo'. "
+            "'grpo': Aggregates token-level losses by normalizing over sequence length. Not recommended due to length "
+            "bias—this approach tends to prefer shorter completions with positive advantages and longer ones with "
+            "negative advantages. "
+            "'dapo' (default): Aggregates token-level losses by normalizing with the number of active token in the "
+            "global accumulated batch. This method was introduced in the DAPO paper to eliminate length bias. "
+            "'dr_grpo': Aggregates token-level losses by normalizing with a global constant. This method was "
+            "introduced in the Dr. GRPO paper to eliminate length bias. The value of the constant corresponds to "
+            "`max_completion_length`. "
+            "'bnpo': Aggregates token-level losses by normalizing with the number of active token in the local batch. "
+            "Note that normalization is performed over the local batch only, so results may slightly vary depending "
+            "on the local batch size, despite a constant effective batch size. When using "
+            "`per_device_train_batch_size==1`, the loss is equivalent to the GRPO loss."
+        },
+    )
+    mask_truncated_completions: bool = field(
+        default=False,
+        metadata={
+            "help": "When enabled, truncated completions are excluded from the loss calculation, preventing them from "
+            "being incorrectly penalized and introducing noise during training. According to the DAPO paper, this is "
+            "a good practice for training stability."
         },
     )
     sync_ref_model: bool = field(
@@ -339,6 +599,37 @@ class DNALLMGRPOConfig(TrainingArguments):
             "synchronized with the reference policy. To use this parameter, you must set `sync_ref_model=True`."
         },
     )
+    top_entropy_quantile: float = field(
+        default=1.0,
+        metadata={
+            "help": "ρ parameter from Beyond the 80/20 Rule. Keeps in the policy loss term only the top-ρ quantile of "
+            "tokens by entropy of the probability distribution at each sequence position, improving results. Range: "
+            "[0.0-1.0]. A value of `0.0` masks all but the highest entropy token; `1.0` keeps all tokens. The paper "
+            "recommends a value of `0.2`. If used with `mask_truncated_completions=True`, only tokens from "
+            "non-truncated completions are considered."
+        },
+    )
+    use_liger_loss: bool = field(
+        default=False,
+        metadata={"help": "Whether to use the Liger GRPO loss."},
+    )
+    vllm_importance_sampling_correction: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether to apply Truncated Importance Sampling (TIS) between vLLM completion logprobs and "
+            "recomputed logprobs. Your Efficient RL Framework Secretly Brings You Off-Policy RL "
+            "Training highlights that using a separate generation framework (such as vLLM) can introduce off-policy "
+            "effects due to subtle implementation differences between generation and training backends. TIS is "
+            "proposed as a remedy for this issue."
+        },
+    )
+    vllm_importance_sampling_cap: float = field(
+        default=2.0,
+        metadata={
+            "help": "Truncation parameter C for Truncated Importance Sampling (TIS). This sets an upper bound on the "
+            "importance sampling ratio, improving training stability."
+        },
+    )
 
     # Parameters that control the logging
     log_completions: bool = field(
@@ -348,14 +639,32 @@ class DNALLMGRPOConfig(TrainingArguments):
             "installed, it prints the sample. If `wandb` logging is enabled, it logs it to `wandb`."
         },
     )
+    num_completions_to_print: Optional[int] = field(
+        default=None,
+        metadata={"help": "Number of completions to print with `rich`. If `None`, all completions are logged."},
+    )
+    wandb_log_unique_prompts: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "Whether to log unique prompts in wandb. If `True`, only unique prompts are logged. If `False`, "
+            "all prompts are logged."
+        },
+    )
+    vllm_ckpt: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "Path to a vLLM checkpoint to load. If `None`, the model specified in the `model` argument is used."
+        },
+    )
 
-    report_to: Union[None, str, list[str]] = field(
+
+    report_to: Union[None, str, List[str]] = field(
         default="wandb", metadata={"help": "The list of integrations to report the results and logs to."}
     )
 
     logging_first_step: bool = field(default=False, metadata={"help": "Log the first global_step"})
     logging_steps: float = field(
-        default=2,
+        default=1,
         metadata={
             "help": (
                 "Log every X updates steps. Should be an integer or a float in range `[0,1)`. "
@@ -363,3 +672,57 @@ class DNALLMGRPOConfig(TrainingArguments):
             )
         },
     )
+
+    def __post_init__(self):
+        self.bf16 = not (self.fp16) if self.bf16 is None else self.bf16
+
+        super().__post_init__()
+
+        self.scale_rewards = {True: "group", False: "none"}.get(self.scale_rewards, self.scale_rewards)
+
+        num_processes = self.world_size
+        # The current default effective batch size
+        if self.generation_batch_size is None and self.steps_per_generation is None:
+            self.steps_per_generation = self.gradient_accumulation_steps
+            self.generation_batch_size = self.per_device_train_batch_size * num_processes * self.steps_per_generation
+        elif self.generation_batch_size is not None and self.steps_per_generation is None:
+            # Just ensure the value is divisible by the global batch size
+            if self.generation_batch_size % (self.per_device_train_batch_size * num_processes) != 0:
+                raise ValueError(
+                    f"generation_batch_size ({self.generation_batch_size}) must be divisible by the global batch size "
+                    f"({self.per_device_train_batch_size * num_processes})."
+                )
+            self.steps_per_generation = self.generation_batch_size // (
+                self.per_device_train_batch_size * num_processes
+            )
+        elif self.generation_batch_size is None and self.steps_per_generation is not None:
+            self.generation_batch_size = self.per_device_train_batch_size * num_processes * self.steps_per_generation
+        else:
+            raise ValueError(
+                "'generation_batch_size' and 'steps_per_generation' can not be both configured at the same time"
+            )
+
+        if self.do_eval and self.eval_strategy != "no":
+            # Just ensure the value is divisible by the global batch size
+            if (self.per_device_eval_batch_size * num_processes) % self.num_generations != 0:
+                raise ValueError(
+                    f"The global eval batch size ({self.per_device_eval_batch_size} * {num_processes}) must be "
+                    f"divisible by num_generations ({self.num_generations})."
+                )
+
+        # The generation batch must contain full prompt groups (no partials), so it must be divisible by
+        # num_generations.
+        if self.generation_batch_size % self.num_generations != 0:
+            raise ValueError(
+                f"generation_batch_size ({self.generation_batch_size}) must be divisible by num_generations "
+                f"({self.num_generations})."
+            )
+
+        if self.num_generations < 2:
+            raise ValueError(
+                "GRPO requires at least 2 generations per prompt to calculate the advantages. You provided "
+                f"{self.num_generations}, which is less than the minimum required."
+            )
+
+        if self.delta is not None and self.use_liger_loss:
+            raise ValueError("Liger loss does not support two-sided GRPO loss yet.")

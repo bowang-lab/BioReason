@@ -5,17 +5,6 @@ import torch
 class DNABaseModule(ABC):
     def __init__(self):
         super().__init__()
-    
-    @abstractmethod
-    def get_dnallm_key(self):
-        pass
-
-    @abstractmethod
-    def get_model_class(self, model_id: str, model_init_kwargs: dict):
-        pass
-
-    def post_model_init(self, model, processing_class):
-        pass
 
     def is_embeds_input(self):
         return False
@@ -41,7 +30,7 @@ class DNABaseModule(ABC):
         pass
 
     @abstractmethod
-    def prepare_prompt(self, processing_class, inputs: dict[str, Union[torch.Tensor, Any]]):
+    def prepare_prompt(self, processing_class, inputs: Dict[str, Union[torch.Tensor, Any]]):
         pass
     
     @abstractmethod
