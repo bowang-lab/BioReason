@@ -407,8 +407,9 @@ class DNALLMFineTuner(pl.LightningModule):
                 max_length_text=self.max_length_text,
                 max_length_dna=self.max_length_dna,
                 return_answer_in_batch=self.return_answer_in_batch,
+                truncate_for_generation=False,
             )
-                
+
 
         elif self.hparams.dataset_type == "variant_effect_coding":
             dataset = load_dataset(self.hparams.variant_effect_coding_data_dir_huggingface)
@@ -439,8 +440,9 @@ class DNALLMFineTuner(pl.LightningModule):
                 max_length_text=self.max_length_text,
                 max_length_dna=self.max_length_dna,
                 return_answer_in_batch=self.return_answer_in_batch,
+                truncate_for_generation=False,
             )
-        
+
         elif self.hparams.dataset_type == "variant_effect_non_snv":
             dataset = load_dataset(self.hparams.variant_effect_non_snv_data_dir_huggingface)
             dataset = dataset.map(clean_variant_effect_non_snv_example)
@@ -472,6 +474,7 @@ class DNALLMFineTuner(pl.LightningModule):
                 max_length_text=self.max_length_text,
                 max_length_dna=self.max_length_dna,
                 return_answer_in_batch=self.return_answer_in_batch,
+                truncate_for_generation=False,
             )
 
         else:
@@ -561,6 +564,7 @@ class DNALLMFineTuner(pl.LightningModule):
                 max_length_text=self.max_length_text,
                 max_length_dna=self.max_length_dna,
                 return_answer_in_batch=self.return_answer_in_batch,
+                truncate_for_generation=False,
             )
 
         return DataLoader(
