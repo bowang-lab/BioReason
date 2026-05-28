@@ -80,40 +80,6 @@ class SaveWithPyTorchCallback(TrainerCallback):
         control.should_save = False
         return control
 
-def _get_target_modules(model: DNALLMModel):
-    # Apply LoRA to all linear layers in the text model
-    target_modules = []
-
-    # Get all unique linear layer names
-    seen_names = set()
-    for name, module in model.text.named_modules():
-        if isinstance(module, torch.nn.Linear):
-            names = name.split(".")
-            target_name = names[-1]  # Use the last part of the name
-
-            # Skip output head but include all other linear layers
-            if target_name != "lm_head" and target_name not in seen_names:
-                target_modules.append(target_name)
-                seen_names.add(target_name)
-
-    # Add attention-specific layers
-    attention_patterns = [
-        "q_proj",
-        "k_proj",
-        "v_proj",
-        "out_proj",
-        "query",
-        "key",
-        "value",
-    ]
-    for pattern in attention_patterns:
-        if pattern not in seen_names:
-            target_modules.append(pattern)
-
-    # Return all unique layer names to apply LoRA to all layers
-    return list(target_modules)
-
-
 def extract_xml_answer(text: str) -> str:
     # answer = text.split("<answer>")[-1]
     # answer = answer.split("</answer>")[0]
@@ -194,9 +160,8 @@ def correctness_reward_func(prompts, completions, answer, **kwargs) -> List[floa
     responses = [completion[0]['content'] for completion in completions]
     q = prompts[0][-1]['content']
     extracted_responses = [extract_xml_answer(r) for r in responses]
-    # extracted_responses = [r.lower().replace("answer:", "").strip() for r in extracted_responses]
     print('-'*20, f"Question:\n{q}", f"\nAnswer:\n{answer[0]}", f"\nResponse:\n{responses[0]}", f"\nExtracted:\n{extracted_responses[0]}")
-    return [2.0 if a.lower() in r.lower() else 0.0 for r, a in zip(extracted_responses, answer[0])]
+    return [2.0 if a.lower() in r.lower() else 0.0 for r, a in zip(extracted_responses, answer)]
 
 def less_than_4_reward_func(completions, **kwargs) -> List[float]:
     responses = [completion[0]['content'] for completion in completions]

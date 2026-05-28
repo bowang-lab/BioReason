@@ -298,7 +298,7 @@ def main(script_args, training_args, model_args):
         else:
             # It's a PyTorch state dict file
             print("Loading as PyTorch state dict file")
-            checkpoint = torch.load(model_args.sft_checkpoint)
+            checkpoint = torch.load(model_args.sft_checkpoint, map_location="cpu")
             
             # replace model.text_model with text_model for all in state dict
             def new_key(k):
@@ -327,11 +327,12 @@ def main(script_args, training_args, model_args):
             if lora_prefix:
                 print("Detected LoRA weights in state dict")
                 # First prepare model for LoRA training
-                print(f"CALLING SECOND PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
-                _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
-                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
-                                                        protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
-                                                        go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
+                _prep_for_training(
+                    model,
+                    model_args,
+                    dna_model_finetune=model_args.dna_model_finetune,
+                    dna_projection_finetune=model_args.dna_projection_finetune,
+                )
                 
                 # Print some diagnostic info about the keys
                 model_keys = set(model.state_dict().keys())
@@ -376,31 +377,31 @@ def main(script_args, training_args, model_args):
                 print("Standard weights detected - remapping keys")
                 # Map keys to model structure
                 magic = {k.replace("text_model", "text_model.base_model.model"): v for k, v in magic.items()}
-                magic = {k.replace("protein_model", "protein_model"): v for k, v in magic.items()}
-                
+
                 # Fix the shared memory tensors issue by making a copy of weights
                 for key in list(magic.keys()):
                     if 'lm_head.weight' in key:
                         magic[key] = magic[key].clone()
-                
+
                 # Load weights before setting up LoRA
                 result = model.load_state_dict(magic, strict=False)
                 print(f"Loaded checkpoint with {len(result.missing_keys)} missing keys and {len(result.unexpected_keys)} unexpected keys")
-                
-                # Now prepare for LoRA training
-                print(f"CALLING THIRD PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
-                _ = _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
-                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
-                                                    protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
-                                                    go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
-    
+
+                _ = _prep_for_training(
+                    model,
+                    model_args,
+                    dna_model_finetune=model_args.dna_model_finetune,
+                    dna_projection_finetune=model_args.dna_projection_finetune,
+                )
+
     else:
         # No checkpoint, just prepare for training
-        print(f"CALLING FOURTH PREP_FOR_TRAINING with protein_model_finetune: {not model_args.freeze_protein_modules}, go_model_finetune: {getattr(model_args, 'go_model_finetune', False)}, protein_projection_finetune: {getattr(model_args, 'protein_projection_finetune', False)}, go_projection_finetune: {getattr(model_args, 'go_projection_finetune', False)}")
-        _ = _prep_for_training(model, model_args, protein_model_finetune=not model_args.freeze_protein_modules, 
-                                                    go_model_finetune=getattr(model_args, "go_model_finetune", False), 
-                                                    protein_projection_finetune=getattr(model_args, "protein_projection_finetune", False), 
-                                                    go_projection_finetune=getattr(model_args, "go_projection_finetune", False))
+        _ = _prep_for_training(
+            model,
+            model_args,
+            dna_model_finetune=model_args.dna_model_finetune,
+            dna_projection_finetune=model_args.dna_projection_finetune,
+        )
     if script_args.full_ckpt is not None:
         print(f"Loading full checkpoint from {script_args.full_ckpt}")
         checkpoint_path = os.path.join(script_args.full_ckpt, "pytorch_model.bin")

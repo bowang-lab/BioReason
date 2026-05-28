@@ -14,7 +14,10 @@ from pytorch_lightning.strategies import DeepSpeedStrategy
 from bioreason.models.dna_only import DNAClassifierModel
 from bioreason.dataset.utils import truncate_dna
 from bioreason.dataset.kegg import dna_collate_fn
-from bioreason.dataset.variant_effect import clean_variant_effect_example
+from bioreason.dataset.variant_effect import (
+    clean_variant_effect_example,
+    clean_variant_effect_non_snv_example,
+)
 from bioreason.models.evo2_tokenizer import register_evo2_tokenizer
 register_evo2_tokenizer()
 
@@ -282,8 +285,8 @@ class DNAClassifierModelTrainer(pl.LightningModule):
             labels = []
             for split, data in dataset.items():
                 labels.extend(data["answer"])
-            labels = list(set(labels))
-        
+            labels = sorted(set(labels))
+
         elif self.hparams.dataset_type == "variant_effect_coding":
             dataset = load_dataset("wanglab/bioR_tasks", "variant_effect_coding")
             dataset = dataset.map(clean_variant_effect_example)
@@ -301,7 +304,7 @@ class DNAClassifierModelTrainer(pl.LightningModule):
         elif self.hparams.dataset_type == "variant_effect_non_snv":
             dataset = load_dataset("wanglab/bioR_tasks", "task5_variant_effect_non_snv")
             dataset = dataset.rename_column("mutated_sequence", "variant_sequence")
-            dataset = dataset.map(clean_variant_effect_example)
+            dataset = dataset.map(clean_variant_effect_non_snv_example)
 
             if self.hparams.truncate_dna_per_side:
                 dataset = dataset.map(
@@ -448,14 +451,14 @@ def main(args):
     trainer.fit(model, ckpt_path=args.ckpt_path)
     trainer.test(model, ckpt_path=args.ckpt_path if args.ckpt_path else "best")
 
-    # Save final model
-    final_model_path = os.path.join(args.output_dir, "final_model")
-    torch.save(model.dna_model.state_dict(), final_model_path)
-    print(f"Final model saved to {final_model_path}")
+    # Save final model only on rank 0 to avoid concurrent writes corrupting the file under DDP.
+    if trainer.is_global_zero:
+        final_model_path = os.path.join(args.output_dir, "final_model")
+        torch.save(model.dna_model.state_dict(), final_model_path)
+        print(f"Final model saved to {final_model_path}")
 
 
 if __name__ == "__main__":
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     parser = argparse.ArgumentParser(description="Train DNA Classifier")
 
     # Model parameters
