@@ -164,7 +164,7 @@ def evaluate_single_example(
     if "Answer:" in generated_text:
         answer_part = generated_text.split("Answer:")[-1].strip()
         predicted_answer = answer_part.lower()
-    
+
     # Get ground truth answer
     ground_truth = example["answer"].strip().lower()
 
@@ -204,23 +204,23 @@ def calculate_metrics(results: List[Dict[str, Any]]) -> Dict[str, float]:
     # Calculate accuracy
     accuracy = correct_predictions / total_examples if total_examples > 0 else 0.0
     
-    # For binary classification metrics, we need to determine positive/negative labels
-    # Get all unique ground truth answers
+    # For binary classification metrics, we need to determine positive/negative labels.
+    # Sort so the chosen positive label is deterministic across runs.
     all_answers = [r["ground_truth"] for r in results]
-    unique_answers = list(set(all_answers))
-    
+    unique_answers = sorted(set(all_answers))
+
     if len(unique_answers) == 2:
         # Binary classification case
-        pos_label = unique_answers[0]  # Assume first label is positive
+        pos_label = unique_answers[0]
         neg_label = unique_answers[1]
-        
-        true_positives = sum(1 for r in results 
+
+        true_positives = sum(1 for r in results
                            if r["ground_truth"] == pos_label and r["predicted_answer"] == pos_label)
-        false_positives = sum(1 for r in results 
+        false_positives = sum(1 for r in results
                             if r["ground_truth"] == neg_label and r["predicted_answer"] == pos_label)
-        false_negatives = sum(1 for r in results 
+        false_negatives = sum(1 for r in results
                             if r["ground_truth"] == pos_label and r["predicted_answer"] == neg_label)
-        true_negatives = sum(1 for r in results 
+        true_negatives = sum(1 for r in results
                            if r["ground_truth"] == neg_label and r["predicted_answer"] == neg_label)
         
         # Calculate precision, recall, and F1

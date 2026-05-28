@@ -704,27 +704,27 @@ class DNALLMFineTuner(pl.LightningModule):
                             top_k=20,
                             do_sample=True,
                         )
-                    
+
                     # Decode user input and generated text
                     user_input = self.tokenizer.decode(gen_input_ids[0], skip_special_tokens=False).strip()
                     generation = self.tokenizer.decode(generated[0], skip_special_tokens=False).strip()
-                    
+
                     # Get ground truth and clean it if needed
                     ground_truth = answer[example_idx]
                     if ";" in ground_truth:
                         ground_truth = ground_truth.split(";")[0]
-                    
+
                     # Determine if this is a positive or negative example
                     is_positive_example = ground_truth.lower() == pos_label.lower()
                     is_negative_example = ground_truth.lower() == neg_label.lower()
-                    
+
                     # Check if the generated text contains the ground truth
                     generation_contains_ground_truth = ground_truth.lower() in generation.lower()
-                    
+
                     # Update metrics based on the classification
                     total_examples += 1
                     examples_in_batch += 1
-                    
+
                     if is_positive_example and generation_contains_ground_truth:
                         true_positives += 1
                     elif is_positive_example and not generation_contains_ground_truth:
@@ -733,7 +733,7 @@ class DNALLMFineTuner(pl.LightningModule):
                         true_negatives += 1
                     elif is_negative_example and not generation_contains_ground_truth:
                         false_positives += 1
-                    
+
                     # Add metadata about the prediction
                     prediction_category = (
                         "TP" if is_positive_example and generation_contains_ground_truth else
@@ -831,10 +831,10 @@ class DNALLMFineTuner(pl.LightningModule):
                 f"test_generations_{time.strftime('%Y%m%d-%H%M%S')}:": wandb.Table(columns=columns, data=data)
             })
         
-        # Save generations to a CSV file
+        # --ckpt_path is a file path; anchor the csv next to it, not inside it.
         model_name = self.hparams.text_model_name.split('/')[-1]
         if self.hparams.ckpt_path:
-            csv_path = os.path.join(self.hparams.ckpt_path, f"{time.strftime('%Y%m%d-%H%M%S')}-test_generations_{model_name}.csv")
+            csv_path = os.path.join(os.path.dirname(self.hparams.ckpt_path) or ".", f"{time.strftime('%Y%m%d-%H%M%S')}-test_generations_{model_name}.csv")
         else:
             csv_path = os.path.join(self.hparams.checkpoint_dir, f"{time.strftime('%Y%m%d-%H%M%S')}-test_generations_{model_name}.csv")
         
@@ -887,9 +887,10 @@ def main(args: ArgumentParser):
     torch.cuda.empty_cache()
     torch.set_float32_matmul_precision("medium")
 
-    # Setup directories
+    # Don't re-timestamp checkpoint_dir when resuming, or wandb resumes onto a stale dir.
     run_name = f"{args.wandb_project}-{args.dataset_type}-{args.text_model_name.split('/')[-1]}"
-    args.checkpoint_dir = f"{args.checkpoint_dir}/{run_name}-{time.strftime('%Y%m%d-%H%M%S')}"
+    if args.ckpt_path is None:
+        args.checkpoint_dir = f"{args.checkpoint_dir}/{run_name}-{time.strftime('%Y%m%d-%H%M%S')}"
 
     # Initialize model
     model = DNALLMFineTuner(args)

@@ -211,7 +211,8 @@ class DNALLMGRPOTrainer(Trainer):
         
         assert not isinstance(model, str), "model must NOT be a string in the current implementation"
 
-        model_id = "Qwen/Qwen3-4B"
+        # Derive ref-model arch from the actual policy backbone.
+        model_id = model.text_model.config._name_or_path
 
         # Some models (SmolVLM/Idefics3) don't support `logits_to_keep` argument and error out if we pass it
         # Inspect the forward method before we wrap the model with PEFT
@@ -499,7 +500,9 @@ class DNALLMGRPOTrainer(Trainer):
 
                 os.environ["MASTER_ADDR"] = os.environ.get("MASTER_ADDR", "localhost")
                 os.environ["MASTER_PORT"] = os.environ.get("MASTER_PORT", "12345") 
-                if self.max_prompt_length is not None and self.max_completion_length is not None:
+                if args.vllm_max_model_len:
+                    max_model_len = args.vllm_max_model_len
+                elif self.max_prompt_length is not None and self.max_completion_length is not None:
                     max_model_len = self.max_prompt_length + self.max_completion_length
                 else:
                     max_model_len = None
@@ -510,7 +513,7 @@ class DNALLMGRPOTrainer(Trainer):
                     max_num_seqs=self.args.per_device_train_batch_size
                     * self.vllm_tensor_parallel_size
                     * self.args.steps_per_generation,
-                    max_model_len=10000,
+                    max_model_len=max_model_len,
                     distributed_executor_backend="external_launcher",
                     # Feed identical seed for tp groups to ensure sampling results are the same across workers
                     seed=self.accelerator.process_index // self.vllm_tensor_parallel_size,
@@ -1508,18 +1511,18 @@ class DNALLMGRPOTrainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         if return_outputs:
             raise ValueError("The GRPOTrainer does not support returning outputs")
-        
+
         # inputs have already been processed by _prepare_inputs
         # which handles generation, scoring, and buffering
         # Get the prepared inputs
         prompt_ids, prompt_mask = inputs["prompt_ids"], inputs["prompt_mask"]
         completion_ids, completion_mask = inputs["completion_ids"], inputs["completion_mask"]
         multimodal_inputs = inputs["multimodal_inputs"]
-        
+
         # Concatenate for full sequence
         input_ids = torch.cat([prompt_ids, completion_ids], dim=1)
         attention_mask = torch.cat([prompt_mask, completion_mask], dim=1)
-        
+
         # Get the current policy's log probabilities
         logits_to_keep = completion_ids.size(1)  # number of completion tokens
         per_token_logps = self._get_per_token_logps(model, input_ids, attention_mask, logits_to_keep, **multimodal_inputs)
@@ -1540,7 +1543,7 @@ class DNALLMGRPOTrainer(Trainer):
         per_token_loss1 = coef_1 * advantages.unsqueeze(1)
         per_token_loss2 = coef_2 * advantages.unsqueeze(1)
         per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
-        
+
         # Add KL penalty if beta > 0
         if self.beta > 0:
             ref_per_token_logps = inputs["ref_per_token_logps"]

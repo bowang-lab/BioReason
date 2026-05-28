@@ -466,14 +466,6 @@ class DNALLMGRPOConfig(TrainingArguments):
     )
 
      # Parameters that control colocated vLLM execution (only used when `vllm_mode` is `"colocate"`)
-    vllm_gpu_memory_utilization: float = field(
-        default=0.3,
-        metadata={
-            "help": "Control the GPU memory utilization for vLLM. This setting only applies when `vllm_mode` is set "
-            "to `'colocate'`. If you are using `vllm_mode='server'`, this parameter must be passed separately when "
-            "launching the vLLM server via the `--vllm_gpu_memory_utilization` flag."
-        },
-    )
     vllm_tensor_parallel_size: int = field(
         default=1,
         metadata={

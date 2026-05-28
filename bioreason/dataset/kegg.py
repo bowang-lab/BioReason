@@ -94,13 +94,16 @@ def qwen_dna_collate_fn(
     max_length_text: int,
     max_length_dna: int,
     return_answer_in_batch: bool = False,
-    truncate_for_generation: bool = True
+    truncate_for_generation: bool = False,
 ) -> Dict:
     """
     Custom collate function for Qwen DNA models.
 
     Creates a batch with proper labels for supervised fine-tuning where only
     the assistant responses contribute to the loss calculation.
+
+    Set ``truncate_for_generation=True`` only for generation-only batches —
+    it drops the assistant span (and its labels) past the assistant marker.
     """
 
     dna_module = NucleotideDNAModule()

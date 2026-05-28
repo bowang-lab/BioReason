@@ -10,7 +10,6 @@ from transformers import (
 
 from typing import Optional, List, Dict, Any, Union, Tuple
 
-from bioreason.utils.dna_utils import DNAInput
 from bioreason.models.dl.processing_dl import DLProcessor
 from bioreason.models.dl.chat_template_dl import CHAT_TEMPLATE
 from bioreason.models.evo2_tokenizer import Evo2Tokenizer, register_evo2_tokenizer
@@ -116,6 +115,8 @@ class DNALLMModel(nn.Module):
 
         new_tokens = ["<|dna_start|>", "<|dna_pad|>", "<|dna_end|>"]
         self.text_tokenizer.add_special_tokens({"additional_special_tokens": new_tokens})
+        # Keep embedding/output matrices in sync with the (possibly-extended) tokenizer.
+        self.text_model.resize_token_embeddings(len(self.text_tokenizer))
         self.dna_token_id = self.text_tokenizer.convert_tokens_to_ids("<|dna_pad|>")
 
 
@@ -132,7 +133,6 @@ class DNALLMModel(nn.Module):
             self.dna_model = Evo2(dna_model_name)
             self.dna_tokenizer = Evo2Tokenizer(self.dna_model.tokenizer)
             self.dna_config = self.dna_model.model.config
-            self.dna_embedding_layer = self.dna_embedding_layer
 
         # Get model dimensions
         self.text_hidden_size = self.text_config.hidden_size
@@ -201,11 +201,11 @@ class DNALLMModel(nn.Module):
                 if hidden_states_list:
                     hidden_states = torch.stack(hidden_states_list)
                 else:
-                    # Return empty tensors on the correct device
-                    return [torch.zeros((0, self.text_hidden_size), 
+                    # Return empty tensors on the correct device, one per batch item
+                    return [torch.zeros((0, self.text_hidden_size),
                                        device=self.dna_projection.weight.device,
-                                       dtype=self.dna_projection.weight.dtype) 
-                           for _ in range(2 * batch_size)]
+                                       dtype=self.dna_projection.weight.dtype)
+                           for _ in range(batch_size)]
                     
             else:  # Standard HuggingFace model
                 # Use existing code path for HF models
@@ -221,23 +221,20 @@ class DNALLMModel(nn.Module):
         hidden_states = hidden_states.to(device=self.dna_projection.weight.device, dtype=self.dna_projection.weight.dtype)
         projected_states = self.dna_projection(hidden_states)
 
-        # Group embeddings by batch item
-        result = [[] for _ in range(2 * batch_size)]
-
-        # For each sequence, get its embeddings and add to appropriate batch result
+        # Group embeddings by batch item, using the attention mask to drop padding
+        # (Evo2 left-pads, HF DNA tokenizers right-pad — mask-indexing handles both).
+        result = [[] for _ in range(batch_size)]
         for seq_idx, batch_idx in enumerate(batch_idx_map):
-            # Get only the valid (non-padding) tokens
-            valid_length = dna_tokenized["attention_mask"][seq_idx].sum().item()
-            seq_embedding = projected_states[seq_idx, :valid_length]
+            seq_embedding = projected_states[seq_idx][dna_tokenized["attention_mask"][seq_idx].bool()]
             result[batch_idx].append(seq_embedding)
 
         # Concatenate embeddings for each batch item
-        for i in range(2 * batch_size):
+        for i in range(batch_size):
             if result[i]:
                 result[i] = torch.cat(result[i], dim=0)
             else:
                 # Create empty tensor on the same device as the projection layer
-                result[i] = torch.zeros((0, self.text_hidden_size), 
+                result[i] = torch.zeros((0, self.text_hidden_size),
                                        device=self.dna_projection.weight.device,
                                        dtype=self.dna_projection.weight.dtype)
 
